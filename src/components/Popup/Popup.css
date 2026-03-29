@@ -1,8 +1,8 @@
 /* Popup Component Styles */
 
 .popup {
-  width: 350px;
-  min-height: 400px;
+  width: 420px;
+  min-height: 520px;
   background-color: white;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -12,34 +12,34 @@
 .popup-header {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  padding: 15px;
+  padding: 18px;
 }
 
 .header-content {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .popup-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 6px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
   background: white;
-  padding: 3px;
+  padding: 4px;
 }
 
 .header-info h1 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
-  margin: 0 0 2px 0;
+  margin: 0 0 4px 0;
 }
 
 .header-info .status {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 3px 10px;
+  border-radius: 12px;
   background-color: rgba(255, 255, 255, 0.2);
   display: inline-block;
 }
@@ -53,39 +53,42 @@
 }
 
 .popup-content {
-  padding: 20px;
+  padding: 24px;
 }
 
 .status-section {
   text-align: center;
-  margin-bottom: 25px;
-  padding: 20px;
+  margin-bottom: 30px;
+  padding: 24px;
   background-color: #f8f9fa;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .status-info {
-  display: flex;
-  justify-content: space-around;
-  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+  text-align: center;
 }
 
 .info-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .info-item .label {
-  font-size: 12px;
+  font-size: 11px;
   color: #6c757d;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
+  font-weight: 600;
 }
 
 .info-item .value {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   color: #007bff;
 }
 
@@ -94,11 +97,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px 20px;
+  gap: 10px;
+  padding: 14px 24px;
   border: none;
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -111,7 +114,8 @@
 
 .toggle-btn.start:hover {
   background-color: #1e7e34;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
 }
 
 .toggle-btn.stop {
@@ -120,86 +124,89 @@
 
 .toggle-btn.stop:hover {
   background-color: #c82333;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
 }
 
 .queue-summary {
-  margin-bottom: 25px;
+  margin-bottom: 30px;
 }
 
 .queue-summary h3 {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
   color: #333;
-  margin-bottom: 15px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e9ecef;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e9ecef;
 }
 
 .queue-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .queue-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  padding: 14px 16px;
   background-color: #fff;
   border: 1px solid #e9ecef;
-  border-radius: 6px;
+  border-radius: 8px;
   transition: all 0.2s ease;
 }
 
 .queue-item:hover {
   background-color: #f8f9fa;
   border-color: #dee2e6;
+  transform: translateX(2px);
 }
 
 .queue-item.enabled {
-  border-left: 3px solid #28a745;
+  border-left: 4px solid #28a745;
 }
 
 .queue-item.disabled {
-  border-left: 3px solid #dc3545;
+  border-left: 4px solid #dc3545;
   opacity: 0.6;
 }
 
 .queue-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: 1;
 }
 
 .queue-name {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: #333;
   flex: 1;
 }
 
 .queue-count {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: #007bff;
   background-color: #e7f3ff;
-  padding: 2px 8px;
-  border-radius: 10px;
-  min-width: 30px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  min-width: 35px;
   text-align: center;
 }
 
 .queue-status {
   display: flex;
   align-items: center;
+  gap: 6px;
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background-color: #dc3545;
 }
@@ -208,42 +215,49 @@
   background-color: #28a745;
 }
 
+.error-indicator {
+  font-size: 14px;
+  cursor: help;
+}
+
 .more-queues {
   text-align: center;
-  padding: 8px;
+  padding: 12px;
   color: #6c757d;
-  font-size: 12px;
+  font-size: 13px;
   font-style: italic;
+  background-color: #f8f9fa;
+  border-radius: 6px;
 }
 
 .empty-state {
   text-align: center;
-  padding: 30px 20px;
+  padding: 40px 24px;
   color: #6c757d;
 }
 
 .empty-state p {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .quick-actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: 10px;
+  padding: 12px 20px;
   border: 1px solid #dee2e6;
-  border-radius: 6px;
+  border-radius: 8px;
   background-color: white;
   color: #495057;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -252,27 +266,28 @@
 .action-btn:hover {
   background-color: #f8f9fa;
   border-color: #adb5bd;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .loading {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 400px;
-  font-size: 16px;
+  min-height: 520px;
+  font-size: 17px;
   color: #6c757d;
 }
 
 .loading::after {
   content: '';
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border: 2px solid #f3f3f3;
   border-top: 2px solid #007bff;
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin-left: 10px;
+  margin-left: 12px;
 }
 
 @keyframes spin {
