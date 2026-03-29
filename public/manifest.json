@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "ServiceNow Audio Alerts - React",
+  "short_name": "SNOW Alerts",
+  "version": "1.0.0",
+  "description": "Professional ServiceNow queue monitoring with React-powered interface",
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.service-now.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ServiceNow Audio Alerts",
+    "default_icon": "icons/ITSM50.png"
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/ITSM16.png",
+    "48": "icons/ITSM48.png",
+    "128": "icons/ITSM128.png"
+  }
+}

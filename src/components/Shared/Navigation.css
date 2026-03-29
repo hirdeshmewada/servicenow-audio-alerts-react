@@ -1,0 +1,132 @@
+/* Navigation Component Styles */
+
+.vertical-nav {
+  width: 250px;
+  background-color: white;
+  border-right: 1px solid #e9ecef;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+  height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
+.nav-header {
+  padding: 20px;
+  border-bottom: 1px solid #e9ecef;
+  background-color: #f8f9fa;
+}
+
+.nav-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nav-menu {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.nav-item {
+  border-bottom: 1px solid #f8f9fa;
+  transition: all 0.2s ease;
+}
+
+.nav-item:last-child {
+  border-bottom: none;
+}
+
+.nav-item a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 20px;
+  color: #495057;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background-color: #f8f9fa;
+}
+
+.nav-item:hover a {
+  color: #007bff;
+}
+
+.nav-item.active {
+  background-color: #007bff;
+}
+
+.nav-item.active a {
+  color: white;
+}
+
+.nav-icon {
+  font-size: 18px;
+  width: 20px;
+  text-align: center;
+}
+
+.nav-text {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+/* Hover effects */
+.nav-item a:hover {
+  transform: translateX(2px);
+}
+
+.nav-item.active a:hover {
+  transform: none;
+}
+
+/* Active indicator */
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background-color: #0056b3;
+}
+
+.nav-item {
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .vertical-nav {
+    width: 100%;
+    height: auto;
+    order: 2;
+  }
+  
+  .nav-menu {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  
+  .nav-item {
+    flex: 1 1 50%;
+    border-bottom: 1px solid #e9ecef;
+  }
+  
+  .nav-item a {
+    justify-content: center;
+    padding: 12px 10px;
+  }
+  
+  .nav-text {
+    font-size: 12px;
+  }
+  
+  .nav-icon {
+    font-size: 16px;
+  }
+}
