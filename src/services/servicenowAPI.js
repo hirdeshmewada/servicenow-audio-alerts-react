@@ -1,10 +1,113 @@
 // Migrated from js/modules/servicenow-api.js
 
+// Progressive decoding for multiple encoding levels
+const progressiveDecode = (encodedString) => {
+  let decoded = encodedString;
+  let previousDecoded;
+  let decodeCount = 0;
+  const maxDecodes = 5;
+  
+  do {
+    previousDecoded = decoded;
+    try {
+      decoded = decodeURIComponent(decoded);
+      decodeCount++;
+    } catch (e) {
+      break;
+    }
+  } while (decoded !== previousDecoded && decodeCount < maxDecodes);
+  
+  return decoded;
+};
+
+// Convert ServiceNow UI URL to REST API URL
+export const convertToRESTURL = (url) => {
+  if (!url || url === '') return null;
+
+  try {
+    console.log('=== ENHANCED SERVICENOW URL PROCESSING ===');
+    console.log('Input URL:', url);
+    
+    // Handle new ServiceNow UI URLs with multiple encoding
+    let processedUrl = url;
+    if (url.includes('/now/nav/ui/classic/params/target/')) {
+      console.log('Detected new ServiceNow UI URL, processing...');
+      
+      const targetMatch = url.match(/params\/target\/(.+)$/);
+      if (targetMatch) {
+        let targetUrl = targetMatch[1];
+        let decodedUrl = progressiveDecode(targetUrl);
+        console.log('Progressively decoded URL:', decodedUrl);
+        
+        const urlMatch = url.match(/(https:\/\/[^\/]+)/);
+        if (urlMatch) {
+          processedUrl = urlMatch[1] + '/' + decodedUrl;
+          console.log('Rebuilt URL:', processedUrl);
+        }
+      }
+    }
+    
+    // Validate it's a ServiceNow URL
+    const urlObj = new URL(processedUrl);
+    if (!urlObj.hostname.includes('service-now.com')) {
+      console.warn('URL does not appear to be a ServiceNow instance:', processedUrl);
+      return null;
+    }
+
+    // Extract table name from URL
+    let tableName = '';
+    const listMatch = urlObj.pathname.match(/\/(.+?)_list\.do/);
+    const tableMatch = urlObj.pathname.match(/\/api\/now\/table\/(.+)/);
+    
+    if (listMatch) {
+      tableName = listMatch[1];
+    } else if (tableMatch) {
+      // Already a REST URL, return as-is with parameters
+      return processedUrl + (processedUrl.includes('?') ? '&' : '?') + 'sysparm_limit=1000';
+    }
+    
+    if (!tableName) {
+      console.error('Could not extract table name from URL');
+      return null;
+    }
+    
+    // Extract query parameters
+    const searchParams = new URLSearchParams(urlObj.search);
+    let sysparmQuery = searchParams.get('sysparm_query') || '';
+    
+    // Build REST API URL
+    let restURL = `${urlObj.protocol}//${urlObj.host}/api/now/table/${tableName}`;
+    
+    if (sysparmQuery) {
+      restURL += '?sysparm_query=' + encodeURIComponent(sysparmQuery);
+    }
+    
+    // Add REST API parameters and fields
+    const separator = sysparmQuery ? '&' : '?';
+    restURL += `${separator}JSONv2&sysparm_limit=1000&sysparm_fields=number,severity,short_description,priority,sys_id,sys_updated_on,account,assigned_to,state,impact,assignment_group,u_first_assignment_group,u_service_downtime_started,u_service_downtime_end,u_resolved,u_resolved_by`;
+    
+    console.log('Final REST API URL:', restURL);
+    return restURL;
+    
+  } catch (error) {
+    console.error('Error converting URL to REST API:', error);
+    return null;
+  }
+};
+
 export const fetchQueueData = async (url) => {
   try {
     console.log('🔍 Fetching data from:', url);
     
-    const response = await fetch(url + '&sysparm_limit=1000', {
+    // Convert UI URL to REST API URL
+    const restURL = convertToRESTURL(url);
+    if (!restURL) {
+      throw new Error('Failed to convert URL to REST API format');
+    }
+    
+    console.log('🔄 Using REST API URL:', restURL);
+    
+    const response = await fetch(restURL, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -20,7 +123,7 @@ export const fetchQueueData = async (url) => {
     const records = data.records || [];
     
     console.log('📊 API Response:', {
-      url: url,
+      url: restURL,
       quantity: records.length,
       records: records
     });
@@ -102,42 +205,5 @@ export const validateServiceNowURL = (url) => {
   } catch (error) {
     console.error('URL validation error:', error);
     return false;
-  }
-};
-
-export const convertToRESTURL = (url) => {
-  try {
-    const urlObj = new URL(url);
-    const pathname = urlObj.pathname;
-    
-    // Check if it's already a REST API URL
-    if (pathname.includes('/api/now/table/')) {
-      return url;
-    }
-    
-    // Convert from list view to REST API
-    if (pathname.includes('/nav_to.do')) {
-      const params = new URLSearchParams(urlObj.search);
-      const sysparmQuery = params.get('sysparm_query');
-      const tableName = params.get('sysparm_table') || 'incident';
-      
-      if (sysparmQuery) {
-        return `${urlObj.origin}/api/now/table/${tableName}?${sysparmQuery}`;
-      }
-    }
-    
-    // Default conversion for ServiceNow URLs
-    if (pathname.includes('/')) {
-      const parts = pathname.split('/').filter(part => part);
-      if (parts.length > 0) {
-        const tableName = parts[parts.length - 1];
-        return `${urlObj.origin}/api/now/table/${tableName}`;
-      }
-    }
-    
-    return url;
-  } catch (error) {
-    console.error('URL conversion error:', error);
-    return url;
   }
 };
