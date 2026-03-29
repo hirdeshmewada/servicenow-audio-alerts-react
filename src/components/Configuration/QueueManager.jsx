@@ -5,6 +5,7 @@ import QueueForm from './QueueForm';
 const QueueManager = ({ queues, onQueuesChange }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingQueue, setEditingQueue] = useState(null);
+  const [showUrlQueue, setShowUrlQueue] = useState(null);
 
   const handleAddQueue = (queueData) => {
     const newQueue = {
@@ -25,11 +26,15 @@ const QueueManager = ({ queues, onQueuesChange }) => {
     );
     onQueuesChange(updatedQueues);
     setEditingQueue(null);
+    setShowUrlQueue(null);
   };
 
   const handleDeleteQueue = (queueId) => {
     if (confirm('Are you sure you want to delete this queue?')) {
       onQueuesChange(queues.filter(queue => queue.id !== queueId));
+      if (showUrlQueue === queueId) {
+        setShowUrlQueue(null);
+      }
     }
   };
 
@@ -38,6 +43,16 @@ const QueueManager = ({ queues, onQueuesChange }) => {
       queue.id === queueId ? { ...queue, enabled: !queue.enabled } : queue
     );
     onQueuesChange(updatedQueues);
+  };
+
+  const handleEditClick = (queueId) => {
+    setShowUrlQueue(queueId);
+    setEditingQueue(queueId);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingQueue(null);
+    setShowUrlQueue(null);
   };
 
   return (
@@ -55,7 +70,7 @@ const QueueManager = ({ queues, onQueuesChange }) => {
         <QueueForm
           queue={queues.find(q => q.id === editingQueue)}
           onSubmit={(data) => handleEditQueue(editingQueue, data)}
-          onCancel={() => setEditingQueue(null)}
+          onCancel={handleCancelEdit}
         />
       )}
 
@@ -64,9 +79,10 @@ const QueueManager = ({ queues, onQueuesChange }) => {
           <QueueCard
             key={queue.id}
             queue={queue}
-            onEdit={() => setEditingQueue(queue.id)}
+            onEdit={() => handleEditClick(queue.id)}
             onDelete={() => handleDeleteQueue(queue.id)}
             onToggle={() => handleToggleQueue(queue.id)}
+            showUrl={showUrlQueue === queue.id}
           />
         ))}
         

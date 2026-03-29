@@ -31,7 +31,10 @@ const Popup = () => {
           changes.lastPollAt || 
           changes.nextPollAt
         )) ||
-        (areaName === 'sync' && changes.pollInterval)
+        (areaName === 'sync' && (
+          changes.settings || 
+          changes.pollInterval
+        ))
       );
       
       if (shouldReload) {
@@ -174,7 +177,7 @@ const Popup = () => {
 
   const handleOpenOptions = () => {
     chrome.tabs.create({
-      url: chrome.runtime.getURL('options.html')
+      url: chrome.runtime.getURL('index.html#dashboard')
     });
     window.close();
   };

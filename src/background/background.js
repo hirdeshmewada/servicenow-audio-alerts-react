@@ -97,7 +97,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async
   }
   
-  // Handle STOP_AUDIO message (from popup/test)
+  // Handle POLL_NOW message (manual refresh from dashboard)
+  if (message.type === 'POLL_NOW') {
+    console.log('🔄 Manual poll requested from dashboard');
+    pollQueues().then(() => {
+      console.log('✅ Manual poll completed');
+      sendResponse({ success: true });
+    }).catch(err => {
+      console.error('❌ Manual poll failed:', err);
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+// Handle STOP_AUDIO message (from popup/test)
   if (message.type === 'STOP_AUDIO') {
     console.log('🔇 Stop audio request received');
     stopAudioDirectly();

@@ -9,16 +9,16 @@ import './Dashboard.css';
 
 const Dashboard = () => {
   const [queues, setQueues] = useState([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [systemStatus, setSystemStatus] = useState('inactive');
+  const [systemStatus, setSystemStatus] = useState('idle');
   const [lastPollAt, setLastPollAt] = useState(null);
   const [nextPollAt, setNextPollAt] = useState(null);
-  const [isMonitoring, setIsMonitoring] = useState(false);
   const [nextPollIn, setNextPollIn] = useState('--:--');
+  const [isMonitoring, setIsMonitoring] = useState(false);
   const [pollInterval, setPollInterval] = useState(5);
+  const [error, setError] = useState(null);
   
   const { getQueues, updateQueueCount } = useChromeStorage();
-  const { fetchQueueData, loading, error } = useServiceNowAPI();
+  const { fetchQueueData, loading, error: apiError } = useServiceNowAPI();
   const { showNotification } = useNotifications();
 
   useEffect(() => {
@@ -90,70 +90,53 @@ const Dashboard = () => {
   const loadRealtimeData = async () => {
     try {
       console.log('=== DASHBOARD LOADING DATA ===');
-      const result = await chrome.storage.local.get([
+      // Read monitoring state from local storage
+      const localResult = await chrome.storage.local.get([
         'queues', 
         'lastPollAt', 
         'nextPollAt', 
-        'isMonitoring',
-        'pollInterval'
+        'isMonitoring'
       ]);
       
-      console.log('Storage data:', {
-        isMonitoring: result.isMonitoring,
-        lastPollAt: result.lastPollAt,
-        nextPollAt: result.nextPollAt,
-        pollInterval: result.pollInterval,
-        queuesCount: result.queues?.length || 0
+      // Read pollInterval from sync storage (settings)
+      const syncResult = await chrome.storage.sync.get(['pollInterval']);
+      
+      console.log('📊 Dashboard loading data:', {
+        isMonitoring: localResult.isMonitoring,
+        queuesCount: localResult.queues?.length || 0,
+        lastPollAt: localResult.lastPollAt,
+        nextPollAt: localResult.nextPollAt,
+        pollInterval: syncResult.pollInterval || 5
       });
       
-      setQueues(result.queues || []);
-      setLastPollAt(result.lastPollAt);
-      setNextPollAt(result.nextPollAt);
-      setIsMonitoring(result.isMonitoring || false);
-      setPollInterval(result.pollInterval || 5);
+      console.log('Storage data:', {
+        isMonitoring: localResult.isMonitoring,
+        lastPollAt: localResult.lastPollAt,
+        nextPollAt: localResult.nextPollAt,
+        pollInterval: syncResult.pollInterval || 5,
+        queuesCount: localResult.queues?.length || 0
+      });
+      
+      setQueues(localResult.queues || []);
+      setLastPollAt(localResult.lastPollAt);
+      setNextPollAt(localResult.nextPollAt);
+      setIsMonitoring(localResult.isMonitoring || false);
+      setPollInterval(syncResult.pollInterval || 5);
       
       // Update system status based on monitoring state
-      if (result.isMonitoring) {
+      if (localResult.isMonitoring) {
         setSystemStatus('active');
       } else {
         setSystemStatus('inactive');
       }
     } catch (error) {
-      console.error('Error loading real-time data:', error);
+      console.error('Error loading dashboard data:', error);
     }
   };
 
   const loadQueues = async () => {
     const savedQueues = await getQueues();
     setQueues(savedQueues || []);
-  };
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    setSystemStatus('active');
-    
-    try {
-      for (const queue of queues) {
-        if (queue.enabled) {
-          const data = await fetchQueueData(queue.url);
-          await updateQueueCount(queue.id, data.quantity);
-          
-          if (data.quantity > 0) {
-            showNotification(
-              `New tickets in ${queue.name}`,
-              `${data.quantity} tickets found`,
-              'info'
-            );
-          }
-        }
-      }
-      setLastPollAt(new Date().toISOString());
-    } catch (err) {
-      console.error('Refresh error:', err);
-    } finally {
-      setIsRefreshing(false);
-      setSystemStatus('idle');
-    }
   };
 
   const formatTime = (dateString) => {
@@ -167,27 +150,26 @@ const Dashboard = () => {
   return (
     <div className="dashboard">
       <div className="dashboard-header">
-        <h2>Real-time monitoring overview and statistics</h2>
-        <button 
-          onClick={handleRefresh} 
-          disabled={isRefreshing}
-          className={`refresh-btn ${isRefreshing ? 'loading' : ''}`}
-        >
-          {isRefreshing ? '🔄 Refreshing...' : '🔄 Refresh'}
-        </button>
+        <div className="dashboard-title">
+          <h2>Real-time monitoring overview and statistics</h2>
+        </div>
       </div>
       
-      <SystemStatus 
-        status={systemStatus} 
-        lastPoll={formatTime(lastPollAt)}
-        nextPoll={formatTime(nextPollAt)}
-        nextPollIn={nextPollIn}
-        isMonitoring={isMonitoring}
-        pollInterval={pollInterval}
-      />
-      
-      <div className="dashboard-grid">
+      {/* Power BI-style top row with status and analytics */}
+      <div className="dashboard-top-row">
+        <SystemStatus 
+          status={systemStatus} 
+          lastPoll={formatTime(lastPollAt)}
+          nextPoll={formatTime(nextPollAt)}
+          nextPollIn={nextPollIn}
+          isMonitoring={isMonitoring}
+          pollInterval={pollInterval}
+        />
         <QueueAnalytics queues={queues} />
+      </div>
+      
+      {/* Recent Tickets section below */}
+      <div className="recent-tickets-section">
         <RecentTickets queues={queues} />
       </div>
       

@@ -1,19 +1,27 @@
 import React from 'react';
 import './QueueCard.css';
 
-const QueueCard = ({ queue, onEdit, onDelete, onToggle }) => {
+const QueueCard = ({ queue, onEdit, onDelete, onToggle, showUrl }) => {
   const getTrend = (current, previous) => {
-    if (current > previous) return '↑';
-    if (current < previous) return '↓';
-    return '→';
+    if (current > previous) return { symbol: '↑', class: 'up' };
+    if (current < previous) return { symbol: '↓', class: 'down' };
+    return { symbol: '→', class: 'neutral' };
+  };
+
+  const trend = getTrend(queue.currentCount, queue.previousCount);
+
+  const handleEditClick = () => {
+    onEdit();
   };
 
   return (
-    <div className={`queue-card ${queue.enabled ? 'enabled' : 'disabled'}`}>
+    <div className={`queue-card ${queue.enabled ? 'enabled' : 'disabled'} ${showUrl ? 'show-url' : ''}`}>
       <div className="queue-header">
         <div className="queue-info">
           <h4 className="queue-name">{queue.name}</h4>
-          <p className="queue-url">{queue.url}</p>
+          {showUrl && (
+            <div className="queue-url">{queue.url}</div>
+          )}
         </div>
         <div className="queue-status">
           <span className={`status-indicator ${queue.enabled ? 'active' : 'inactive'}`}>
@@ -24,13 +32,13 @@ const QueueCard = ({ queue, onEdit, onDelete, onToggle }) => {
       
       <div className="queue-stats">
         <div className="stat-item">
-          <span className="stat-label">Current Count:</span>
+          <span className="stat-label">Current Count</span>
           <span className="stat-value">{queue.currentCount || 0}</span>
         </div>
         <div className="stat-item">
-          <span className="stat-label">Trend:</span>
-          <span className="stat-value trend">
-            {getTrend(queue.currentCount, queue.previousCount)}
+          <span className="stat-label">Trend</span>
+          <span className={`stat-value trend ${trend.class}`}>
+            {trend.symbol}
           </span>
         </div>
       </div>
@@ -42,7 +50,7 @@ const QueueCard = ({ queue, onEdit, onDelete, onToggle }) => {
         >
           {queue.enabled ? '⏸️ Disable' : '▶️ Enable'}
         </button>
-        <button className="btn btn-sm btn-primary" onClick={onEdit}>
+        <button className="btn btn-sm btn-primary" onClick={handleEditClick}>
           ✏️ Edit
         </button>
         <button className="btn btn-sm btn-danger" onClick={onDelete}>
@@ -52,7 +60,7 @@ const QueueCard = ({ queue, onEdit, onDelete, onToggle }) => {
 
       {queue.notificationText && (
         <div className="queue-notification">
-          <span className="notification-label">Notification:</span>
+          <span className="notification-label">Notification</span>
           <span className="notification-text">{queue.notificationText}</span>
         </div>
       )}

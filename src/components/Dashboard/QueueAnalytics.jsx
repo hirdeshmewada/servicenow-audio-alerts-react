@@ -15,7 +15,6 @@ const QueueAnalytics = ({ queues }) => {
     <div className="queue-card">
       <div className="card-header">
         <h3>Queue Analytics</h3>
-        <button className="btn btn-sm btn-secondary">🔄 Refresh</button>
       </div>
       <div className="card-content">
         <div className="queue-grid">

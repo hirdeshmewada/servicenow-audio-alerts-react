@@ -11,16 +11,24 @@ const Sound = () => {
     loopAudio: false
   });
   
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  
   const { getSettings, saveSettings } = useChromeStorage();
 
   useEffect(() => {
     loadSettings();
+    checkUploadedFiles();
     
     // Set up storage listener for dynamic updates
     const handleStorageChange = (changes, areaName) => {
       if (areaName === 'sync' && changes.settings) {
         console.log('🔄 Sound settings changed in sync storage, updating UI...');
         loadSettings();
+      }
+      if (areaName === 'local' && changes.audioData) {
+        console.log('🔄 Audio data changed in local storage, updating UI...');
+        checkUploadedFiles();
       }
     };
 
@@ -33,6 +41,20 @@ const Sound = () => {
       }
     };
   }, []);
+
+  const checkUploadedFiles = async () => {
+    try {
+      const result = await chrome.storage.local.get(['audioData']);
+      if (result.audioData) {
+        setUploadedFile(result.audioData);
+        console.log('📁 Found uploaded audio file:', result.audioData.name);
+      } else {
+        setUploadedFile(null);
+      }
+    } catch (error) {
+      console.error('❌ Error checking uploaded files:', error);
+    }
+  };
 
   const loadSettings = async () => {
     const settings = await getSettings();
@@ -79,22 +101,103 @@ const Sound = () => {
       playbackDuration: 5,
       loopAudio: false
     });
+    setUploadedFile(null);
+    
+    // Clear uploaded audio from storage
+    chrome.storage.local.remove(['audioData']);
+    console.log('🗑️ Custom audio removed and settings reset');
+  };
+
+  const handleClearCustomAudio = async () => {
+    try {
+      await chrome.storage.local.remove(['audioData']);
+      setUploadedFile(null);
+      const newSettings = { ...audioSettings, audioSource: 'default' };
+      setAudioSettings(newSettings);
+      await handleAutoSave(newSettings);
+      console.log('🗑️ Custom audio cleared successfully');
+      alert('✅ Custom audio removed successfully!');
+    } catch (error) {
+      console.error('❌ Error clearing custom audio:', error);
+      alert('❌ Failed to remove custom audio');
+    }
   };
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
+    console.log('📁 File selected:', file);
+    
     if (file) {
-      console.log('📁 Uploading audio file:', file.name);
+      console.log('📁 Uploading audio file:', {
+        name: file.name,
+        type: file.type,
+        size: file.size
+      });
+      
       try {
         const success = await loadCustomAudio(file);
+        console.log('📁 loadCustomAudio result:', success);
+        
         if (success) {
-          setAudioSettings(prev => ({ ...prev, audioSource: 'custom' }));
+          // Update audio source to custom
+          const newSettings = { ...audioSettings, audioSource: 'custom' };
+          setAudioSettings(newSettings);
+          
+          // Set uploaded file info
+          setUploadedFile({
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            loadedAt: new Date().toISOString()
+          });
+          
+          // Auto-save the new settings
+          await handleAutoSave(newSettings);
+          
+          console.log('✅ Audio file uploaded and settings updated!');
           alert('✅ Audio file uploaded successfully!');
+        } else {
+          throw new Error('loadCustomAudio returned false');
         }
       } catch (error) {
         console.error('❌ Error uploading audio file:', error);
-        alert('❌ Failed to upload audio file. Please check file format and size.');
+        alert(`❌ Failed to upload audio file: ${error.message}`);
       }
+    } else {
+      console.warn('⚠️ No file selected');
+    }
+    
+    // Reset file input
+    event.target.value = '';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      console.log('📁 File dropped:', file);
+      
+      // Create a synthetic event to reuse the existing handler
+      const syntheticEvent = {
+        target: { files: [file] }
+      };
+      handleFileUpload(syntheticEvent);
     }
   };
 
@@ -105,8 +208,19 @@ const Sound = () => {
         <p>Configure audio notifications and custom sounds</p>
       </div>
 
-      <div className="sound-sections">
-        {/* Audio Selection */}
+      {/* Action Buttons at Top */}
+      <div className="action-buttons">
+        <button className="btn btn-secondary" onClick={handleReset}>
+          🔄 Reset to Defaults
+        </button>
+        <button className="btn btn-primary" onClick={handleSave}>
+          💾 Save Settings
+        </button>
+      </div>
+
+      {/* 2x2 Grid Layout */}
+      <div className="sound-grid">
+        {/* Audio Selection - Top Left */}
         <div className="sound-section">
           <div className="section-title">Audio Selection</div>
           <div className="form-group">
@@ -137,11 +251,16 @@ const Sound = () => {
           {/* Custom Audio Upload */}
           {audioSettings.audioSource === 'custom' && (
             <div className="audio-upload-section">
-              <div className="upload-area">
+              <div 
+                className={`upload-area ${isDragging ? 'dragging' : ''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
                 <div className="upload-content">
-                  <div className="upload-icon">📁</div>
-                  <h4>Upload Custom Audio</h4>
-                  <p>Drag & drop MP3 or WAV files here (max 5MB)</p>
+                  <div className="upload-icon">{isDragging ? '📥' : '📁'}</div>
+                  <h4>{isDragging ? 'Drop audio file here' : 'Upload Custom Audio'}</h4>
+                  <p>Drag & drop MP3 or WAV files here (max 10MB)</p>
                   <input 
                     type="file" 
                     accept="audio/*" 
@@ -162,14 +281,37 @@ const Sound = () => {
               <div className="custom-audio-list">
                 <h4>Uploaded Audio Files</h4>
                 <div className="audio-files-grid">
-                  <div className="empty-state">No custom audio files uploaded yet</div>
+                  {uploadedFile ? (
+                    <div className="uploaded-file-info">
+                      <div className="file-details">
+                        <div className="file-name">🎵 {uploadedFile.name}</div>
+                        <div className="file-meta">
+                          <span className="file-size">{(uploadedFile.size / 1024).toFixed(1)} KB</span>
+                          <span className="file-type">{uploadedFile.type}</span>
+                        </div>
+                        <div className="file-date">
+                          Uploaded: {new Date(uploadedFile.loadedAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="file-actions">
+                        <button className="btn btn-primary btn-sm" onClick={handleTestAudio}>
+                          🔊 Test
+                        </button>
+                        <button className="btn btn-danger btn-sm" onClick={handleReset}>
+                          🗑️ Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="empty-state">No custom audio files uploaded yet</div>
+                  )}
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Playback Settings */}
+        {/* Playback Settings - Top Right */}
         <div className="sound-section">
           <div className="section-title">Playback Settings</div>
           <div className="playback-controls">
@@ -241,39 +383,60 @@ const Sound = () => {
           </div>
         </div>
 
-        {/* File Management */}
+        {/* File Management - Bottom Left */}
         <div className="sound-section">
           <div className="section-title">File Management</div>
           <div className="files-management">
             <div className="files-grid">
-              <div className="empty-state">No files to manage</div>
+              {uploadedFile ? (
+                <div className="uploaded-file-info">
+                  <div className="file-details">
+                    <div className="file-name">🎵 {uploadedFile.name}</div>
+                    <div className="file-meta">
+                      <span className="file-size">{(uploadedFile.size / 1024).toFixed(1)} KB</span>
+                      <span className="file-type">{uploadedFile.type}</span>
+                    </div>
+                    <div className="file-date">
+                      Uploaded: {new Date(uploadedFile.loadedAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="file-actions">
+                    <button className="btn btn-primary btn-sm" onClick={handleTestAudio}>
+                      🔊 Test
+                    </button>
+                    <button className="btn btn-danger btn-sm" onClick={handleClearCustomAudio}>
+                      🗑️ Remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="empty-state">No files to manage</div>
+              )}
             </div>
             <div className="storage-info">
               <div className="storage-stats">
                 <div className="stat-item">
                   <span className="stat-label">Files Uploaded:</span>
-                  <span>0</span>
+                  <span>{uploadedFile ? '1' : '0'}</span>
                 </div>
                 <div className="stat-item">
                   <span className="stat-label">Total Size:</span>
-                  <span>0 MB</span>
+                  <span>{uploadedFile ? `${(uploadedFile.size / 1024 / 1024).toFixed(2)} MB` : '0 MB'}</span>
                 </div>
                 <div className="stat-item">
                   <span className="stat-label">Max Files:</span>
                   <span>5</span>
                 </div>
               </div>
+              {uploadedFile && (
+                <div className="storage-actions">
+                  <button className="btn btn-secondary btn-sm" onClick={handleClearCustomAudio}>
+                    🗑️ Clear All Files
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-
-        <div className="action-buttons">
-          <button className="btn btn-secondary" onClick={handleReset}>
-            🔄 Reset to Defaults
-          </button>
-          <button className="btn btn-primary" onClick={handleSave}>
-            💾 Save Settings
-          </button>
         </div>
       </div>
     </div>

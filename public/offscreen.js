@@ -24,9 +24,16 @@ async function playAudioNotification(audioData = null, settings = null) {
     stopCurrentAudio();
     
     // Use provided audio data or default
-    const audioUrl = audioData ? `data:audio/wav;base64,${audioData.data}` : chrome.runtime.getURL('sound/alarm-deep_groove.mp3');
+    let audioUrl;
+    if (audioData && audioData.data) {
+      // Use the actual MIME type from the uploaded file
+      audioUrl = `data:${audioData.type};base64,${audioData.data}`;
+    } else {
+      audioUrl = chrome.runtime.getURL('sound/alarm-deep_groove.mp3');
+    }
     
     console.log('🎵 Audio URL:', audioUrl);
+    console.log('🎵 Audio type:', audioData?.type || 'default');
     
     // Use provided settings or defaults
     const playbackSettings = {
