@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { playAudio } from '../../services/audioManager';
 
 const AudioSettings = ({ settings, onSave }) => {
   const [audioSettings, setAudioSettings] = useState({
@@ -25,16 +24,16 @@ const AudioSettings = ({ settings, onSave }) => {
   const handleTestAudio = async () => {
     console.log('🔊 Testing audio with settings:', audioSettings);
     try {
-      const success = await playAudio({
-        volume: audioSettings.volume,
-        playbackDuration: audioSettings.playbackDuration,
-        loopAudio: false // Don't loop for test
+      // Send message to background script to test audio
+      await chrome.runtime.sendMessage({
+        action: 'testAudio',
+        settings: {
+          volume: audioSettings.volume,
+          playbackDuration: audioSettings.playbackDuration,
+          loopAudio: false // Don't loop for test
+        }
       });
-      if (success) {
-        console.log('✅ Audio test successful');
-      } else {
-        console.error('❌ Audio test failed');
-      }
+      console.log('✅ Audio test message sent to background');
     } catch (error) {
       console.error('❌ Error testing audio:', error);
     }

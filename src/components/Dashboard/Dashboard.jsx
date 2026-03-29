@@ -22,11 +22,11 @@ const Dashboard = () => {
 
   useEffect(() => {
     loadRealtimeData();
-    // Set up real-time updates every second
+    // Update every 5 seconds instead of every second to prevent blinking
     const interval = setInterval(() => {
       loadRealtimeData();
       updateNextPollIn();
-    }, 1000);
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 

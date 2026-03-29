@@ -283,7 +283,7 @@ function shouldAlert(currentCount, previousCount, alertCondition) {
   }
 }
 
-// Handle alert for queue
+// Handle alert for queue - MATCH OLD EXTENSION
 async function handleAlert(queue, result, settings) {
   try {
     console.log('\n🚨 === ALERT HANDLING START ===');
@@ -295,46 +295,26 @@ async function handleAlert(queue, result, settings) {
       settings: settings
     });
     
-    const message = queue.notificationText || `New tickets in ${queue.name}`;
-    console.log('💬 Notification message prepared:', message);
+    // Get latest ticket for notification details
+    const latestTicket = result.records && result.records.length > 0 ? result.records[0] : null;
+    console.log('🎫 Latest ticket for notification:', latestTicket ? {
+      number: latestTicket.number,
+      description: latestTicket.short_description,
+      severity: latestTicket.severity || 'info'
+    } : 'No tickets available');
     
-    // Step 1: Send notification
-    console.log('📢 Step 1: Creating browser notification...');
-    const notificationStart = Date.now();
-    
-    if (!settings.disableAlarm) {
-      console.log('🔔 Notifications enabled - proceeding with notification');
-      
-      // Get latest ticket for notification details
-      const latestTicket = result.records && result.records.length > 0 ? result.records[0] : null;
-      console.log('🎫 Latest ticket for notification:', latestTicket ? {
-        number: latestTicket.number,
-        description: latestTicket.short_description,
-        severity: latestTicket.severity || 'info'
-      } : 'No tickets available');
-      
+    // Create notification regardless of audio setting (like old extension)
+    if (latestTicket) {
       await showNotification(
-        latestTicket ? latestTicket.number : 'ServiceNow Alert',
-        latestTicket ? latestTicket.short_description : message,
-        latestTicket ? latestTicket.severity : 'info',
-        null, // custom title
+        latestTicket.number,
+        latestTicket.short_description,
+        latestTicket.severity,
+        queue.notificationText || null, // Use custom notification text from queue config
         queue.url // queue URL for click handler
       );
-      
-      const notificationTime = Date.now() - notificationStart;
-      console.log('✅ Notification sent successfully:', {
-        queueName: queue.name,
-        time: `${notificationTime}ms`,
-        ticketNumber: latestTicket?.number || 'N/A'
-      });
-    } else {
-      console.log('🔕 Notifications disabled - skipping notification');
     }
     
-    // Step 2: Play audio
-    console.log('🎵 Step 2: Playing audio notification...');
-    const audioStart = Date.now();
-    
+    // Play audio only if not disabled (like old extension)
     if (!settings.disableAlarm && settings.enableSound !== false) {
       console.log('🔊 Audio enabled - proceeding with audio playback');
       
@@ -344,24 +324,12 @@ async function handleAlert(queue, result, settings) {
         duration: settings.audioDuration
       });
       
-      const audioTime = Date.now() - audioStart;
-      console.log('✅ Audio playback started:', {
-        queueName: queue.name,
-        time: `${audioTime}ms`,
-        settings: {
-          loop: settings.loopAudio !== false,
-          volume: settings.volume || 0.5,
-          duration: settings.audioDuration
-        }
-      });
+      console.log('✅ Audio playback started for:', queue.name);
     } else {
-      console.log('� Audio disabled - skipping audio playback');
+      console.log('🔇 Audio disabled - skipping audio playback');
     }
     
-    // Step 3: Update badge
-    console.log('🏷️ Step 3: Updating extension badge...');
-    const badgeStart = Date.now();
-    
+    // Update badge
     try {
       const data = await chrome.storage.local.get(['queues', 'previousCounts']);
       const { queues: currentQueues, previousCounts } = data;
@@ -377,13 +345,6 @@ async function handleAlert(queue, result, settings) {
       });
       
       updateBadge(currentQueues, currentCounts);
-      
-      const badgeTime = Date.now() - badgeStart;
-      console.log('✅ Badge updated:', {
-        queueName: queue.name,
-        time: `${badgeTime}ms`,
-        totalCount: Object.values(currentCounts).reduce((sum, count) => sum + count, 0)
-      });
     } catch (badgeError) {
       console.error('❌ Badge update failed:', badgeError);
     }
@@ -392,9 +353,8 @@ async function handleAlert(queue, result, settings) {
     console.log('📊 Alert summary:', {
       queueName: queue.name,
       ticketCount: result.quantity,
-      notificationSent: !settings.disableAlarm,
-      audioPlayed: !settings.disableAlarm && settings.enableSound !== false,
-      processingTime: `${Date.now() - notificationStart}ms total`
+      notificationSent: !!latestTicket,
+      audioPlayed: !settings.disableAlarm && settings.enableSound !== false
     });
     
   } catch (error) {

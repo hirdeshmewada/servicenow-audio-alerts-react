@@ -8,14 +8,15 @@ const Popup = () => {
   const [lastPollAt, setLastPollAt] = useState(null);
   const [nextPollAt, setNextPollAt] = useState(null);
   const [nextPollIn, setNextPollIn] = useState('--:--');
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     loadData();
-    // Set up real-time updates
+    // Update every 5 seconds instead of every second to prevent blinking
     const interval = setInterval(() => {
       loadData();
       updateNextPollIn();
-    }, 1000);
+    }, 5000);
     
     return () => clearInterval(interval);
   }, []);
@@ -27,19 +28,29 @@ const Popup = () => {
       const diff = nextPoll - now;
       
       if (diff > 0) {
-        const minutes = Math.floor(diff / 60000);
-        const seconds = Math.floor((diff % 60000) / 1000);
+        const totalSeconds = Math.floor(diff / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
         setNextPollIn(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+        
+        // Calculate progress percentage (assuming 5-minute polling interval)
+        const pollingInterval = 5 * 60 * 1000; // 5 minutes in ms
+        const elapsed = pollingInterval - diff;
+        const progress = Math.max(0, Math.min(100, (elapsed / pollingInterval) * 100));
+        setProgress(progress);
       } else {
         setNextPollIn('Polling...');
+        setProgress(0);
       }
     } else {
       setNextPollIn('--:--');
+      setProgress(0);
     }
   };
 
   useEffect(() => {
     updateNextPollIn();
+    // Update countdown every second for smooth countdown
     const interval = setInterval(updateNextPollIn, 1000);
     return () => clearInterval(interval);
   }, [nextPollAt]);
@@ -150,6 +161,17 @@ const Popup = () => {
               <span className="label">Next Poll In:</span>
               <span className="value">{nextPollIn}</span>
             </div>
+          </div>
+          
+          <div className="progress-container">
+            <div className="progress-label">Next Poll Progress</div>
+            <div className="progress-bar">
+              <div 
+                className="progress-fill" 
+                style={{ width: `${progress}%` }}
+              ></div>
+            </div>
+            <div className="progress-text">{Math.round(progress)}%</div>
           </div>
           
           <button 

@@ -51,8 +51,8 @@ async function createNotificationWithDelay(notificationData) {
   console.log('\n🔔 === NOTIFICATION CREATION PROCESS ===');
   console.log('📋 Processing notification:', { ticketNumber, ticketDescription, severity, customTitle, queueUrl });
   
-  // Use custom title if provided, otherwise use default
-  const notificationTitle = customTitle || `${getPriorityLabel(parseInt(severity) || 5)} | ${ticketNumber}`;
+  // Use custom title if provided, otherwise use ticket number only (not priority)
+  const notificationTitle = customTitle || ticketNumber;
   console.log('📝 Notification title:', notificationTitle);
   
   // Determine icon based on priority/severity - MATCH OLD EXTENSION
@@ -87,7 +87,7 @@ async function createNotificationWithDelay(notificationData) {
     message: ticketDescription || 'New ticket alert',
     requireInteraction: true,
     isClickable: true,
-    buttons: [{ title: "Close" }]
+    buttons: [{ title: "❌ Close" }]
   };
   
   console.log('⚙️ Notification options prepared:', {
@@ -118,7 +118,7 @@ async function createNotificationWithDelay(notificationData) {
         message: ticketDescription || 'New ticket alert',
         requireInteraction: false,
         isClickable: true,
-        buttons: [{ title: "Close" }]
+        buttons: [{ title: "❌ Close" }]
       };
       
       chrome.notifications.create(`fallback_${notificationId}`, fallbackOptions, function (fallbackId) {
@@ -236,7 +236,7 @@ export function setupNotificationButtonHandler() {
       if (buttonIndex === 0) {
         // Close button clicked
         console.log('Close button clicked - stopping audio and dismissing notification');
-        await stopAudio();
+        await chrome.runtime.sendMessage({ type: "STOP_AUDIO" });
         console.log('Audio stopped via Close button');
         
         // Clear the notification after stopping audio
@@ -257,7 +257,7 @@ export function setupNotificationClickHandler() {
     
     try {
       // Stop audio when opening queue
-      await stopAudio();
+      await chrome.runtime.sendMessage({ type: "STOP_AUDIO" });
       console.log('Audio stopped when opening queue');
       
       // Get the stored queue URL for this notification
@@ -274,10 +274,11 @@ export function setupNotificationClickHandler() {
         chrome.storage.local.remove(`notification_${notificationId}`);
       } else {
         console.log('No queue URL found for notification:', notificationId);
-        // Fallback to options page
-        await chrome.tabs.create({
-          url: chrome.runtime.getURL('options.html')
-        });
+        // Fallback to root URL if available
+        const rootResult = await chrome.storage.sync.get(['rooturl']);
+        if (rootResult.rooturl) {
+          await chrome.tabs.create({ url: rootResult.rooturl });
+        }
       }
     } catch (error) {
       console.error('Error handling notification click:', error);
@@ -293,7 +294,7 @@ export function setupNotificationCloseHandler() {
     try {
       // Stop any playing audio when user manually closes
       console.log('Notification closed by user or auto-clear - stopping audio');
-      await stopAudio();
+      await chrome.runtime.sendMessage({ type: "STOP_AUDIO" });
       console.log('Audio stopped due to notification close');
       
       // Always clean up stored URL
