@@ -103,6 +103,16 @@ async function handlePlayAudio(settings) {
       loop: settings.loopAudio || settings.loop || defaultSettings.loopAudio || false
     };
     
+    // Get custom audio data if available
+    let audioData = null;
+    if (defaultSettings.audioSource === 'custom') {
+      const audioResult = await chrome.storage.local.get(['audioData']);
+      if (audioResult.audioData) {
+        audioData = audioResult.audioData;
+        console.log('🎵 Using custom audio:', audioData.name);
+      }
+    }
+    
     console.log('🔧 Audio settings:', finalSettings);
     
     // Create offscreen document if it doesn't exist
@@ -124,7 +134,7 @@ async function handlePlayAudio(settings) {
     // Send message to offscreen document
     const audioMessage = {
       type: "PLAY_AUDIO",
-      audioData: null,
+      audioData: audioData,
       settings: finalSettings
     };
 
@@ -247,11 +257,132 @@ async function pollQueues() {
   }
 }
 
+// Progressive decoding for multiple encoding levels (matches old extension)
+function progressiveDecode(encodedString) {
+  let decoded = encodedString;
+  let previousDecoded;
+  let decodeCount = 0;
+  const maxDecodes = 5;
+  
+  do {
+    previousDecoded = decoded;
+    try {
+      decoded = decodeURIComponent(decoded);
+      decodeCount++;
+    } catch (e) {
+      break;
+    }
+  } while (decoded !== previousDecoded && decodeCount < maxDecodes);
+  
+  return decoded;
+}
+
+// Extract ServiceNow query from URL (matches old extension exactly)
+function extractServiceNowQuery(url) {
+  try {
+    // Handle both encoded and non-encoded URLs
+    let workingUrl = url;
+    
+    // Decode URL first if it's encoded
+    if (url.includes('%')) {
+      workingUrl = progressiveDecode(url);
+    }
+    
+    // Extract sysparm_query using multiple patterns (exactly like old extension)
+    const patterns = [
+      /sysparm_query=([^&]*)/,
+      /sysparm_query%3D([^&]*)/,
+      /sysparm_query%253D([^&]*)/,
+      /[?&]sysparm_query=([^&]*)/
+    ];
+    
+    for (const pattern of patterns) {
+      const match = workingUrl.match(pattern);
+      if (match) {
+        let query = match[1];
+        // Additional decode if needed
+        if (query.includes('%')) {
+          query = progressiveDecode(query);
+        }
+        return query;
+      }
+    }
+    
+    console.warn('Could not extract sysparm_query from URL');
+    return '';
+  } catch (error) {
+    console.error('Error extracting ServiceNow query:', error);
+    return '';
+  }
+}
+
+// Convert ServiceNow UI URL to API URL (matches old extension exactly)
+function convertToApiUrl(url) {
+  try {
+    console.log('=== URL CONVERSION ===');
+    console.log('Input URL:', url);
+    
+    // Handle new ServiceNow UI URLs with /now/nav/ui/classic/params/target/
+    let processedUrl = url;
+    if (url.includes('/now/nav/ui/classic/params/target/')) {
+      console.log('Detected new ServiceNow UI URL, processing...');
+      
+      const targetMatch = url.match(/params\/target\/(.+)$/);
+      if (targetMatch) {
+        let targetUrl = targetMatch[1];
+        
+        // Progressive decoding - handle multiple encoding levels (exactly like old extension)
+        let decodedUrl = progressiveDecode(targetUrl);
+        console.log('Progressively decoded URL:', decodedUrl);
+        
+        // Rebuild full URL
+        const urlMatch = url.match(/(https:\/\/[^\/]+)/);
+        if (urlMatch) {
+          processedUrl = urlMatch[1] + '/' + decodedUrl;
+          console.log('Rebuilt URL:', processedUrl);
+        }
+      }
+    }
+    
+    // Validate it's a ServiceNow URL
+    const urlObj = new URL(processedUrl);
+    if (!urlObj.hostname.includes('service-now.com')) {
+      console.warn('URL does not appear to be a ServiceNow instance:', processedUrl);
+      return undefined;
+    }
+
+    // Extract ServiceNow query parameters safely (exactly like old extension)
+    const serviceNowQuery = extractServiceNowQuery(processedUrl);
+    console.log('Extracted ServiceNow query:', serviceNowQuery);
+    
+    // Build REST API URL with proper encoding (exactly like old extension)
+    let restURL = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+    
+    // Add ServiceNow query with proper encoding to preserve & characters
+    if (serviceNowQuery) {
+      restURL += '?sysparm_query=' + encodeURIComponent(serviceNowQuery);
+    }
+    
+    // Add REST API parameters (JSONv2 format like old extension)
+    const separator = serviceNowQuery ? '&' : '?';
+    restURL += `${separator}JSONv2&sysparm_fields=number,severity,short_description,priority,sys_id,sys_updated_on,account,assigned_to,state,u_next_step_date_and_time,impact,category,opened_by,assignment_group,u_first_assignment_group,u_service_downtime_started,u_service_downtime_end,u_fault_cause,resolved_by,resolved_at,u_resolved,u_resolved_by,sys_mod_count`;
+    
+    console.log('Final REST API URL:', restURL);
+    return restURL;
+  } catch (error) {
+    console.error('❌ Error converting URL:', error);
+    return undefined;
+  }
+}
+
 // Fetch queue data from ServiceNow
 async function fetchQueueData(url) {
   try {
-    console.log('🔍 Fetching data from:', url);
-    const response = await fetch(url + '&sysparm_limit=1000', {
+    // Convert UI URL to API URL if needed
+    const apiUrl = convertToApiUrl(url);
+    
+    console.log('🔍 Fetching data from:', apiUrl);
+    const response = await fetch(apiUrl + (apiUrl.includes('?') ? '&' : '?') + 'sysparm_limit=1000', {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -259,17 +390,28 @@ async function fetchQueueData(url) {
       }
     });
     
+    // Check if response is HTML (login page or error)
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('text/html')) {
+      console.error('❌ Received HTML response instead of JSON. URL may require authentication or be incorrect.');
+      return {
+        quantity: 0,
+        records: [],
+        timestamp: Date.now()
+      };
+    }
+    
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     
     const data = await response.json();
-    const records = data.records || [];
+    const records = data.result || data.records || [];
     
     console.log('📊 API Response:', {
-      url: url,
+      url: apiUrl,
       quantity: records.length,
-      records: records
+      records: records.slice(0, 3) // Log first 3 records only
     });
     
     return {
