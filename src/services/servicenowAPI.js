@@ -20,36 +20,33 @@ const progressiveDecode = (encodedString) => {
   return decoded;
 };
 
-// Convert ServiceNow UI URL to REST API URL
+// Convert ServiceNow UI URL to REST API URL - Match old extension exactly
 export const convertToRESTURL = (url) => {
   if (!url || url === '') return null;
 
   try {
-    console.log('🔗 === URL CONVERSION DEBUG START ===');
-    console.log('📥 Original URL:', url);
-    console.log('🔍 URL length:', url.length, 'characters');
+    console.log('🔗 === MATCHING OLD EXTENSION URL PROCESSING ===');
+    console.log('📥 Input URL:', url);
     
     // Handle new ServiceNow UI URLs with multiple encoding
     let processedUrl = url;
     if (url.includes('/now/nav/ui/classic/params/target/')) {
-      console.log('✅ Detected new ServiceNow UI URL format');
+      console.log('✅ Detected new ServiceNow UI URL, processing...');
       
       const targetMatch = url.match(/params\/target\/(.+)$/);
       if (targetMatch) {
         let targetUrl = targetMatch[1];
-        console.log('🎯 Extracted target URL:', targetUrl);
         
+        // Progressive decoding - handle multiple encoding levels
         let decodedUrl = progressiveDecode(targetUrl);
         console.log('🔓 Progressively decoded URL:', decodedUrl);
-        console.log('🔓 Decode iterations completed');
         
+        // Rebuild full URL
         const urlMatch = url.match(/(https:\/\/[^\/]+)/);
         if (urlMatch) {
           processedUrl = urlMatch[1] + '/' + decodedUrl;
-          console.log('🔗 Rebuilt full URL:', processedUrl);
+          console.log('🔗 Rebuilt URL:', processedUrl);
         }
-      } else {
-        console.error('❌ Could not extract target URL from params');
       }
     } else {
       console.log('ℹ️ Using original URL format (no conversion needed)');
@@ -57,80 +54,37 @@ export const convertToRESTURL = (url) => {
     
     // Validate it's a ServiceNow URL
     const urlObj = new URL(processedUrl);
-    console.log('🌐 Parsed URL:', {
-      protocol: urlObj.protocol,
-      hostname: urlObj.hostname,
-      pathname: urlObj.pathname,
-      search: urlObj.search
-    });
-    
     if (!urlObj.hostname.includes('service-now.com')) {
       console.warn('⚠️ URL does not appear to be a ServiceNow instance:', processedUrl);
       return null;
     }
 
-    // Extract table name from URL
-    let tableName = '';
-    const listMatch = urlObj.pathname.match(/\/(.+?)_list\.do/);
-    const tableMatch = urlObj.pathname.match(/\/api\/now\/table\/(.+)/);
+    // Extract ServiceNow query parameters safely
+    const serviceNowQuery = extractServiceNowQuery(processedUrl);
+    console.log('🔍 Extracted ServiceNow query:', serviceNowQuery);
     
-    console.log('🏷️ Table extraction attempts:', {
-      listMatch: listMatch ? listMatch[1] : 'none',
-      tableMatch: tableMatch ? tableMatch[1] : 'none'
-    });
-    
-    if (listMatch) {
-      tableName = listMatch[1];
-      console.log('✅ Table name extracted from list format:', tableName);
-    } else if (tableMatch) {
-      // Already a REST URL, return as-is with parameters
-      console.log('ℹ️ Already REST API URL - returning with parameters');
-      return processedUrl + (processedUrl.includes('?') ? '&' : '?') + 'sysparm_limit=1000';
-    }
-    
-    if (!tableName) {
-      console.error('❌ Could not extract table name from URL pathname:', urlObj.pathname);
-      return null;
-    }
-    
-    // Extract query parameters
-    const searchParams = new URLSearchParams(urlObj.search);
-    let sysparmQuery = searchParams.get('sysparm_query') || '';
-    console.log('🔍 Query extraction:', {
-      originalSearch: urlObj.search,
-      extractedQuery: sysparmQuery,
-      queryLength: sysparmQuery.length
-    });
-    
-    // Build REST API URL using original approach
+    // Build REST API URL with proper encoding - MATCH OLD EXTENSION EXACTLY
     let restURL = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
-    console.log('🔗 Base REST URL:', restURL);
     
-    // Add ServiceNow query with proper encoding
-    if (sysparmQuery) {
-      const encodedQuery = encodeURIComponent(sysparmQuery);
-      restURL += '?sysparm_query=' + encodedQuery;
-      console.log('🔐 Query encoded:', {
-        original: sysparmQuery,
-        encoded: encodedQuery,
-        encodedLength: encodedQuery.length
-      });
+    // Add ServiceNow query with proper encoding to preserve & characters
+    if (serviceNowQuery) {
+      // Use encodeURIComponent to properly encode the entire query
+      // This preserves internal & characters while making it URL-safe
+      restURL += '?sysparm_query=' + encodeURIComponent(serviceNowQuery);
     }
     
-    // Add REST API parameters
-    const separator = sysparmQuery ? '&' : '?';
-    const restParams = `${separator}JSONv2&sysparm_limit=1000&sysparm_fields=number,severity,short_description,priority,sys_id,sys_updated_on,account,assigned_to,state,impact,assignment_group,u_first_assignment_group,u_service_downtime_started,u_service_downtime_end,u_resolved,u_resolved_by`;
-    restURL += restParams;
+    // Add REST API parameters - MATCH OLD EXTENSION EXACTLY
+    const separator = serviceNowQuery ? '&' : '?';
+    restURL += `${separator}JSONv2&sysparm_fields=number,severity,short_description,priority,sys_id,sys_updated_on,account,assigned_to,state,u_next_step_date_and_time,impact,category,opened_by,assignment_group,u_first_assignment_group,u_service_downtime_started,u_service_downtime_end,u_fault_cause,resolved_by,resolved_at,u_resolved,u_resolved_by,sys_mod_count`;
     
-    console.log('📋 Added REST parameters:', restParams);
-    console.log('🎯 Final REST API URL:', restURL);
-    console.log('📏 Final URL length:', restURL.length, 'characters');
-    console.log('✅ === URL CONVERSION DEBUG END === SUCCESS ===');
+    console.log('🎯 Final REST API URL (matching old extension):', restURL);
+    console.log('📏 Query length:', serviceNowQuery.length, 'characters');
+    console.log('✅ === URL PROCESSING COMPLETE ===');
     
     return restURL;
     
   } catch (error) {
-    console.error('❌ === URL CONVERSION DEBUG END === ERROR ===');
+    console.error('❌ === URL PROCESSING ERROR ===');
     console.error('💥 Error Type:', error.constructor.name);
     console.error('📝 Error Message:', error.message);
     console.error('🔗 Input URL:', url);
@@ -139,59 +93,65 @@ export const convertToRESTURL = (url) => {
   }
 };
 
+// Extract ServiceNow query from URL - Helper function
+function extractServiceNowQuery(url) {
+  try {
+    // Handle both encoded and non-encoded URLs
+    let workingUrl = url;
+    
+    // Decode URL first if it's encoded
+    if (url.includes('%')) {
+      workingUrl = progressiveDecode(url);
+    }
+    
+    // Extract sysparm_query using multiple patterns
+    const patterns = [
+      /sysparm_query=([^&]*)/,
+      /sysparm_query%3D([^&]*)/,
+      /sysparm_query%253D([^&]*)/,
+      /[?&]sysparm_query=([^&]*)/
+    ];
+    
+    for (const pattern of patterns) {
+      const match = workingUrl.match(pattern);
+      if (match) {
+        let query = match[1];
+        // Additional decode if needed
+        if (query.includes('%')) {
+          query = progressiveDecode(query);
+        }
+        return query;
+      }
+    }
+    
+    return '';
+  } catch (error) {
+    console.error('Error extracting ServiceNow query:', error);
+    return '';
+  }
+}
+
 // ServiceNow API Service - Match original extension exactly
 // Original approach: ServiceNow returns JSON when accessed from Chrome extension context
 
 export const fetchQueueData = async (url) => {
   try {
-    console.log('🔍 === ORIGINAL EXTENSION APPROACH ===');
+    console.log('🔍 === MATCHING OLD EXTENSION FETCH ===');
     console.log('📥 Input URL:', url);
     
-    // Decode URL if it's encoded (new ServiceNow UI format)
-    let decodedUrl = url;
-    if (url.includes('/now/nav/ui/classic/params/target/')) {
-      console.log('🔓 Decoding ServiceNow UI URL...');
-      
-      const targetMatch = url.match(/params\/target\/(.+)$/);
-      if (targetMatch) {
-        let targetUrl = targetMatch[1];
-        console.log('🎯 Extracted target:', targetUrl);
-        
-        // Progressive decode
-        let decoded = targetUrl;
-        let previous;
-        let count = 0;
-        const maxDecodes = 5;
-        
-        do {
-          previous = decoded;
-          try {
-            decoded = decodeURIComponent(decoded);
-            count++;
-            console.log(`🔓 Decode iteration ${count}:`, decoded);
-          } catch (e) {
-            console.log('🛑 Decode failed at iteration', count);
-            break;
-          }
-        } while (decoded !== previous && count < maxDecodes);
-        
-        // Rebuild full URL
-        const urlMatch = url.match(/(https:\/\/[^\/]+)/);
-        if (urlMatch) {
-          decodedUrl = urlMatch[1] + '/' + decoded;
-          console.log('🔗 Decoded URL:', decodedUrl);
-        }
-      }
+    // Convert URL using the same logic as old extension
+    const restURL = convertToRESTURL(url);
+    if (!restURL) {
+      console.error('❌ URL conversion failed - cannot proceed');
+      throw new Error('Failed to convert URL to REST API format');
     }
     
-    // Add sysparm_limit to decoded URL
-    const finalUrl = decodedUrl + '&sysparm_limit=1000';
-    console.log('🔄 Final URL with limit:', finalUrl);
+    console.log('� Using REST API URL:', restURL);
     
     console.log('📤 Sending fetch request...');
     const fetchStart = Date.now();
     
-    const response = await fetch(finalUrl, {
+    const response = await fetch(restURL, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -207,7 +167,7 @@ export const fetchQueueData = async (url) => {
       console.error('❌ HTTP Error:', {
         status: response.status,
         statusText: response.statusText,
-        url: finalUrl
+        url: restURL
       });
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -217,7 +177,7 @@ export const fetchQueueData = async (url) => {
     const records = data.records || [];
     
     console.log('📈 Response Summary:', {
-      url: finalUrl,
+      url: restURL,
       totalRecords: records.length,
       hasRecords: records.length > 0,
       responseTime: `${fetchTime}ms`,
