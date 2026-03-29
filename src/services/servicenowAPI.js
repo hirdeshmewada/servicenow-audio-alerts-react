@@ -109,6 +109,7 @@ export const fetchQueueData = async (url) => {
     
     const response = await fetch(restURL, {
       method: 'GET',
+      credentials: 'include', // Send cookies for ServiceNow authentication
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
