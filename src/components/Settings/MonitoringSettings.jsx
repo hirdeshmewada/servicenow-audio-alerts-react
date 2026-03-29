@@ -148,8 +148,8 @@ const MonitoringSettings = ({ settings, onSave }) => {
             <input
               type="radio"
               name="alertCondition"
-              value="newTicket"
-              checked={monitoringSettings.alertCondition === 'newTicket'}
+              value="alarmOnNewEntry"
+              checked={monitoringSettings.alertCondition === 'alarmOnNewEntry'}
               onChange={(e) => setMonitoringSettings(prev => ({ ...prev, alertCondition: e.target.value }))}
             />
             <span className="radio-custom"></span>

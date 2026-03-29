@@ -61,10 +61,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async
   }
   
-  // Handle STOP_AUDIO message
+  // Direct function to stop audio without message loop
+async function stopAudioDirectly() {
+  try {
+    console.log('🔇 Stopping audio directly');
+    // Send to offscreen document
+    chrome.runtime.sendMessage({ type: "STOP_AUDIO" }).catch(() => {
+      console.log('Offscreen document not found or already stopped');
+    });
+  } catch (error) {
+    console.error('❌ Error stopping audio directly:', error);
+  }
+}
+
+// Handle STOP_AUDIO message (from popup/test)
   if (message.type === 'STOP_AUDIO') {
     console.log('🔇 Stop audio request received');
-    chrome.runtime.sendMessage({ type: "STOP_AUDIO" }).catch(() => {});
+    stopAudioDirectly();
     sendResponse({ success: true });
     return true;
   }
@@ -163,9 +176,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // Start monitoring
 async function startMonitoring() {
   try {
-    console.log('▶️ Starting monitoring');
+    console.log('=== STARTING MONITORING ===');
     const settings = await getSettings();
     const pollInterval = settings.pollInterval || 5;
+    console.log('Poll interval:', pollInterval, 'minutes');
     
     await chrome.alarms.clear('queuePoll');
     await chrome.alarms.create('queuePoll', {
@@ -173,10 +187,21 @@ async function startMonitoring() {
       periodInMinutes: pollInterval
     });
     
-    await chrome.storage.local.set({ isMonitoring: true });
+    const nextPollAt = new Date(Date.now() + pollInterval * 60 * 1000).toISOString();
+    await chrome.storage.local.set({ 
+      isMonitoring: true,
+      nextPollAt: nextPollAt,
+      pollInterval: pollInterval
+    });
+    
+    // Update badge to show monitoring is active
+    chrome.action.setBadgeText({ text: '...' });
+    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+    
+    console.log('Next poll scheduled for:', nextPollAt);
     await pollQueues();
     
-    console.log('✅ Monitoring started');
+    console.log('=== MONITORING STARTED ===');
   } catch (error) {
     console.error('❌ Error starting monitoring:', error);
   }
@@ -188,6 +213,11 @@ async function stopMonitoring() {
     console.log('⏸️ Stopping monitoring');
     await chrome.alarms.clear('queuePoll');
     await chrome.storage.local.set({ isMonitoring: false });
+    
+    // Update badge to show monitoring is stopped
+    chrome.action.setBadgeText({ text: 'Off' });
+    chrome.action.setBadgeBackgroundColor({ color: '#999999' });
+    
     console.log('✅ Monitoring stopped');
   } catch (error) {
     console.error('❌ Error stopping monitoring:', error);
@@ -208,9 +238,17 @@ async function getMonitoringStatus() {
 // Poll queues for updates
 async function pollQueues() {
   try {
-    console.log('🔍 Polling queues...');
-    const data = await chrome.storage.local.get(['queues', 'settings', 'previousCounts']);
-    const { queues = [], settings = {}, previousCounts = {} } = data;
+    console.log('=== POLLING QUEUES ===');
+    const result = await chrome.storage.local.get(['queues', 'settings', 'previousCounts', 'oldTicketList', 'newTicketList']);
+    let queues = result.queues || [];
+    const settings = result.settings || {};
+    const previousCounts = result.previousCounts || {};
+    const oldTicketList = result.oldTicketList || [];
+    const pollInterval = settings.pollInterval || 5;
+    
+    console.log('Current queues:', queues.length);
+    console.log('Previous counts:', previousCounts);
+    console.log('Old ticket list length:', oldTicketList.length);
     
     if (settings.disablePolling) {
       console.log('⏸️ Polling disabled');
@@ -219,11 +257,20 @@ async function pollQueues() {
     
     const newCounts = {};
     const lastPollAt = new Date().toISOString();
+    const nextPollAt = new Date(Date.now() + pollInterval * 60 * 1000).toISOString();
+    let newTicketList = [];
+    
+    console.log('Last poll:', lastPollAt);
+    console.log('Next poll:', nextPollAt);
     
     for (const queue of queues) {
-      if (!queue.enabled || !queue.url) continue;
+      if (!queue.enabled || !queue.url) {
+        console.log(`Skipping queue ${queue.name}: disabled or no URL`);
+        continue;
+      }
       
       try {
+        console.log(`Polling queue: ${queue.name}`);
         const result = await fetchQueueData(queue.url);
         const count = result.quantity;
         newCounts[queue.id] = count;
@@ -232,9 +279,18 @@ async function pollQueues() {
         queue.lastUpdated = lastPollAt;
         queue.records = result.records || [];
         
+        console.log(`Queue ${queue.name} count:`, count);
+        
+        // Extract ticket numbers from records (like old extension)
+        const ticketNumbers = result.records ? result.records.map(r => r.number).filter(n => n) : [];
+        newTicketList = [...newTicketList, ...ticketNumbers];
+        console.log(`Queue ${queue.name} tickets:`, ticketNumbers);
+        
         const previousCount = previousCounts[queue.id] || 0;
         
-        if (shouldAlert(count, previousCount, settings.alertCondition)) {
+        // Check alert condition with proper logic (like old extension)
+        if (shouldAlert(count, previousCount, settings.alertCondition, oldTicketList, newTicketList)) {
+          console.log(`🚨 Alert triggered for ${queue.name}: ${previousCount} -> ${count}`);
           await handleAlert(queue, result, settings);
         }
       } catch (error) {
@@ -244,14 +300,20 @@ async function pollQueues() {
       }
     }
     
+    // Update ticket lists for next comparison (like old extension)
     await chrome.storage.local.set({ 
       previousCounts: newCounts,
       queues: queues,
-      lastPollAt: lastPollAt
+      lastPollAt: lastPollAt,
+      nextPollAt: nextPollAt,
+      oldTicketList: [...newTicketList], // Move current list to old for next cycle
+      newTicketList: newTicketList
     });
     
     updateBadge(queues, newCounts);
-    console.log('✅ Polling complete');
+    console.log('=== POLLING COMPLETE ===');
+    console.log('New counts:', newCounts);
+    console.log('New ticket list length:', newTicketList.length);
   } catch (error) {
     console.error('❌ Error polling queues:', error);
   }
@@ -375,7 +437,7 @@ function convertToApiUrl(url) {
   }
 }
 
-// Fetch queue data from ServiceNow
+// Fetch queue data from ServiceNow (matches old extension exactly)
 async function fetchQueueData(url) {
   try {
     // Convert UI URL to API URL if needed
@@ -408,11 +470,13 @@ async function fetchQueueData(url) {
     const data = await response.json();
     const records = data.result || data.records || [];
     
-    console.log('📊 API Response:', {
-      url: apiUrl,
-      quantity: records.length,
-      records: records.slice(0, 3) // Log first 3 records only
-    });
+    // Console logging exactly like old extension
+    console.log(`=== URL DATA DEBUG ===`);
+    console.log(`URL: ${apiUrl}`);
+    console.log(`Full response data:`, data);
+    console.log(`Records array (main table):`, records);
+    console.log(`Number of records: ${records.length}`);
+    console.log(`=====================`);
     
     return {
       quantity: records.length,
@@ -429,14 +493,44 @@ async function fetchQueueData(url) {
   }
 }
 
-// Check if we should send an alert
-function shouldAlert(currentCount, previousCount, alertCondition) {
+// Check if we should send an alert (matches old extension logic)
+function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList = [], newTicketList = []) {
+  console.log('=== NOTIFICATION LOGIC ===');
+  console.log('Alert condition:', alertCondition);
+  console.log('Current count:', currentCount);
+  console.log('Previous count:', previousCount);
+  console.log('Old ticket list length:', oldTicketList.length);
+  console.log('New ticket list length:', newTicketList.length);
+  
   switch (alertCondition) {
-    case 'newTicket':
-      return currentCount > previousCount;
+    case 'alarmOnNewEntry':
+      // Check for new tickets by comparing lists (like old extension)
+      if (oldTicketList.length === 0) {
+        console.log('🔄 First run - treating all tickets as existing');
+        return false;
+      }
+      
+      // Find tickets that are in new list but not in old list
+      const difference = newTicketList.filter(x => !oldTicketList.includes(x));
+      console.log('New tickets detected:', difference);
+      
+      if (difference.length > 0) {
+        console.log('✅ Triggering - new tickets condition met');
+        return true;
+      } else {
+        console.log('❌ No new tickets detected');
+        return false;
+      }
+      
     case 'nonZeroCount':
     default:
-      return currentCount > 0;
+      if (currentCount > 0) {
+        console.log('✅ Triggering - count > 0 condition met');
+        return true;
+      } else {
+        console.log('❌ No tickets - count is 0');
+        return false;
+      }
   }
 }
 
@@ -498,7 +592,7 @@ async function showNotification(ticketNumber, ticketDescription, severity, custo
       await chrome.storage.local.set({ [`notification_${notificationId}`]: queueUrl });
     }
     
-    // Auto-clear after 8 seconds
+    // Auto-clear after 8 seconds (like old extension)
     setTimeout(() => {
       chrome.notifications.clear(notificationId);
       chrome.storage.local.remove(`notification_${notificationId}`);
@@ -515,23 +609,87 @@ async function showNotification(ticketNumber, ticketDescription, severity, custo
 async function updateBadge(queues, counts) {
   try {
     const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-    chrome.action.setBadgeText({ text: total.toString() });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF6B6B' });
+    
+    // Get monitoring status
+    const result = await chrome.storage.local.get(['isMonitoring']);
+    const isMonitoring = result.isMonitoring || false;
+    
+    if (!isMonitoring) {
+      chrome.action.setBadgeText({ text: 'Off' });
+      chrome.action.setBadgeBackgroundColor({ color: '#999999' });
+    } else if (total === 0) {
+      chrome.action.setBadgeText({ text: '0' });
+      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+    } else {
+      chrome.action.setBadgeText({ text: total.toString() });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF6B6B' });
+    }
   } catch (error) {
     console.error('❌ Error updating badge:', error);
   }
 }
 
-// Storage change listener
-chrome.storage.onChanged.addListener(async (changes, namespace) => {
-  if (namespace === 'local' && changes.isMonitoring) {
-    const isMonitoring = changes.isMonitoring.newValue;
-    if (isMonitoring) {
-      await startMonitoring();
-    } else {
-      await stopMonitoring();
+console.log('🎯 ServiceNow Audio Alerts background service worker loaded');
+
+// Notification button click handler - stops audio when close button is clicked
+chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
+  console.log('🔔 Notification button clicked:', notificationId, 'Button index:', buttonIndex);
+  
+  try {
+    if (buttonIndex === 0) {
+      // Close button clicked
+      console.log('❌ Close button clicked - stopping audio');
+      await stopAudioDirectly();
+      console.log('✅ Audio stopped via Close button');
+      
+      // Clear the notification
+      chrome.notifications.clear(notificationId);
+      chrome.storage.local.remove(`notification_${notificationId}`);
+      console.log('🧹 Notification dismissed');
     }
+  } catch (error) {
+    console.error('❌ Error handling notification button click:', error);
   }
 });
 
-console.log('🎯 ServiceNow Audio Alerts background service worker loaded');
+// Notification click handler - stops audio and opens queue URL
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+  console.log('🔔 Notification clicked:', notificationId);
+  
+  try {
+    // Stop audio when opening queue
+    await stopAudioDirectly();
+    console.log('✅ Audio stopped when opening queue');
+    
+    // Get the stored queue URL
+    const result = await chrome.storage.local.get([`notification_${notificationId}`]);
+    const queueUrl = result[`notification_${notificationId}`];
+    
+    if (queueUrl) {
+      console.log('🌐 Opening queue URL:', queueUrl);
+      await chrome.tabs.create({ url: queueUrl });
+    }
+    
+    // Clear the notification
+    chrome.notifications.clear(notificationId);
+    chrome.storage.local.remove(`notification_${notificationId}`);
+  } catch (error) {
+    console.error('❌ Error handling notification click:', error);
+  }
+});
+
+// Notification close handler - stops audio when notification is closed
+chrome.notifications.onClosed.addListener(async (notificationId) => {
+  console.log('🔔 Notification closed:', notificationId);
+  
+  try {
+    // Stop audio when notification is closed
+    await stopAudioDirectly();
+    console.log('✅ Audio stopped due to notification close');
+    
+    // Clean up stored URL
+    chrome.storage.local.remove(`notification_${notificationId}`);
+  } catch (error) {
+    console.error('❌ Error handling notification close:', error);
+  }
+});

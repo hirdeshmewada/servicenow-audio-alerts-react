@@ -15,6 +15,7 @@ const Dashboard = () => {
   const [nextPollAt, setNextPollAt] = useState(null);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [nextPollIn, setNextPollIn] = useState('--:--');
+  const [pollInterval, setPollInterval] = useState(5);
   
   const { getQueues, updateQueueCount } = useChromeStorage();
   const { fetchQueueData, loading, error } = useServiceNowAPI();
@@ -30,7 +31,7 @@ const Dashboard = () => {
     
     // Set up storage listener for dynamic updates
     const handleStorageChange = (changes, areaName) => {
-      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt)) {
+      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt || changes.pollInterval)) {
         console.log('🔄 Storage changed, updating dashboard...');
         loadRealtimeData();
       }
@@ -72,17 +73,28 @@ const Dashboard = () => {
 
   const loadRealtimeData = async () => {
     try {
+      console.log('=== DASHBOARD LOADING DATA ===');
       const result = await chrome.storage.local.get([
         'queues', 
         'lastPollAt', 
         'nextPollAt', 
-        'isMonitoring'
+        'isMonitoring',
+        'pollInterval'
       ]);
+      
+      console.log('Storage data:', {
+        isMonitoring: result.isMonitoring,
+        lastPollAt: result.lastPollAt,
+        nextPollAt: result.nextPollAt,
+        pollInterval: result.pollInterval,
+        queuesCount: result.queues?.length || 0
+      });
       
       setQueues(result.queues || []);
       setLastPollAt(result.lastPollAt);
       setNextPollAt(result.nextPollAt);
       setIsMonitoring(result.isMonitoring || false);
+      setPollInterval(result.pollInterval || 5);
       
       // Update system status based on monitoring state
       if (result.isMonitoring) {
@@ -155,6 +167,7 @@ const Dashboard = () => {
         nextPoll={formatTime(nextPollAt)}
         nextPollIn={nextPollIn}
         isMonitoring={isMonitoring}
+        pollInterval={pollInterval}
       />
       
       <div className="dashboard-grid">

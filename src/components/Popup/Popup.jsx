@@ -9,6 +9,7 @@ const Popup = () => {
   const [nextPollAt, setNextPollAt] = useState(null);
   const [nextPollIn, setNextPollIn] = useState('--:--');
   const [progress, setProgress] = useState(0);
+  const [pollInterval, setPollInterval] = useState(5);
 
   useEffect(() => {
     loadData();
@@ -20,7 +21,7 @@ const Popup = () => {
     
     // Set up storage listener for dynamic updates
     const handleStorageChange = (changes, areaName) => {
-      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt)) {
+      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt || changes.pollInterval)) {
         console.log('🔄 Storage changed, updating popup...');
         loadData();
       }
@@ -48,8 +49,8 @@ const Popup = () => {
         const seconds = totalSeconds % 60;
         setNextPollIn(`${minutes}:${seconds.toString().padStart(2, '0')}`);
         
-        // Calculate progress percentage (assuming 5-minute polling interval)
-        const pollingInterval = 5 * 60 * 1000; // 5 minutes in ms
+        // Calculate progress percentage using actual poll interval
+        const pollingInterval = pollInterval * 60 * 1000; // Use actual poll interval
         const elapsed = pollingInterval - diff;
         const progress = Math.max(0, Math.min(100, (elapsed / pollingInterval) * 100));
         setProgress(progress);
@@ -78,12 +79,23 @@ const Popup = () => {
         'isMonitoring', 
         'queues', 
         'lastPollAt', 
-        'nextPollAt'
+        'nextPollAt',
+        'pollInterval'
       ]);
+      
+      console.log('📊 Popup loading data:', {
+        isMonitoring: result.isMonitoring,
+        queuesCount: result.queues?.length || 0,
+        lastPollAt: result.lastPollAt,
+        nextPollAt: result.nextPollAt,
+        pollInterval: result.pollInterval
+      });
+      
       setIsMonitoring(result.isMonitoring || false);
       setQueues(result.queues || []);
       setLastPollAt(result.lastPollAt);
       setNextPollAt(result.nextPollAt);
+      setPollInterval(result.pollInterval || 5);
     } catch (error) {
       console.error('Error loading popup data:', error);
       setIsMonitoring(false);
@@ -103,15 +115,31 @@ const Popup = () => {
 
   const handleToggleMonitoring = async () => {
     try {
+      console.log('🔄 Toggle monitoring clicked, current status:', isMonitoring);
+      
       if (isMonitoring) {
-        await chrome.runtime.sendMessage({ type: 'STOP_MONITORING' });
-        setIsMonitoring(false);
+        console.log('🛑 Stopping monitoring...');
+        const response = await chrome.runtime.sendMessage({ type: 'STOP_MONITORING' });
+        if (response.success) {
+          console.log('✅ Monitoring stopped successfully');
+          setIsMonitoring(false);
+        } else {
+          console.error('❌ Failed to stop monitoring:', response.error);
+        }
       } else {
-        await chrome.runtime.sendMessage({ type: 'START_MONITORING' });
-        setIsMonitoring(true);
+        console.log('▶️ Starting monitoring...');
+        const response = await chrome.runtime.sendMessage({ type: 'START_MONITORING' });
+        if (response.success) {
+          console.log('✅ Monitoring started successfully');
+          setIsMonitoring(true);
+          // Immediately reload data to get the nextPollAt
+          setTimeout(() => loadData(), 500);
+        } else {
+          console.error('❌ Failed to start monitoring:', response.error);
+        }
       }
     } catch (error) {
-      console.error('Error toggling monitoring:', error);
+      console.error('❌ Error toggling monitoring:', error);
     }
   };
 
@@ -186,6 +214,10 @@ const Popup = () => {
               <span className="value">{getEnabledQueues().length}</span>
             </div>
             <div className="info-item">
+              <span className="label">Poll Interval:</span>
+              <span className="value">{pollInterval} min</span>
+            </div>
+            <div className="info-item">
               <span className="label">Last Poll:</span>
               <span className="value">{formatTime(lastPollAt)}</span>
             </div>
@@ -248,18 +280,6 @@ const Popup = () => {
               )}
             </div>
           )}
-        </div>
-
-        <div className="quick-actions">
-          <button className="action-btn" onClick={handleOpenOptions}>
-            ⚙️ Open Settings
-          </button>
-          <button 
-            className="action-btn"
-            onClick={handleTestAudio}
-          >
-            🔊 Test Audio
-          </button>
         </div>
       </div>
     </div>
