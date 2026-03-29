@@ -147,10 +147,46 @@ export const fetchQueueData = async (url) => {
     console.log('🔍 === ORIGINAL EXTENSION APPROACH ===');
     console.log('📥 Input URL:', url);
     
-    // Exact original approach: just add sysparm_limit to original URL
-    // ServiceNow automatically returns JSON when accessed from Chrome extension
-    const finalUrl = url + '&sysparm_limit=1000';
-    console.log('🔄 Using original URL with limit:', finalUrl);
+    // Decode URL if it's encoded (new ServiceNow UI format)
+    let decodedUrl = url;
+    if (url.includes('/now/nav/ui/classic/params/target/')) {
+      console.log('🔓 Decoding ServiceNow UI URL...');
+      
+      const targetMatch = url.match(/params\/target\/(.+)$/);
+      if (targetMatch) {
+        let targetUrl = targetMatch[1];
+        console.log('🎯 Extracted target:', targetUrl);
+        
+        // Progressive decode
+        let decoded = targetUrl;
+        let previous;
+        let count = 0;
+        const maxDecodes = 5;
+        
+        do {
+          previous = decoded;
+          try {
+            decoded = decodeURIComponent(decoded);
+            count++;
+            console.log(`🔓 Decode iteration ${count}:`, decoded);
+          } catch (e) {
+            console.log('🛑 Decode failed at iteration', count);
+            break;
+          }
+        } while (decoded !== previous && count < maxDecodes);
+        
+        // Rebuild full URL
+        const urlMatch = url.match(/(https:\/\/[^\/]+)/);
+        if (urlMatch) {
+          decodedUrl = urlMatch[1] + '/' + decoded;
+          console.log('🔗 Decoded URL:', decodedUrl);
+        }
+      }
+    }
+    
+    // Add sysparm_limit to decoded URL
+    const finalUrl = decodedUrl + '&sysparm_limit=1000';
+    console.log('🔄 Final URL with limit:', finalUrl);
     
     console.log('📤 Sending fetch request...');
     const fetchStart = Date.now();
@@ -206,6 +242,11 @@ export const fetchQueueData = async (url) => {
     console.error('💥 Error:', err.message);
     console.error('🔗 URL:', url);
     console.error('🌐 Stack:', err.stack);
+    
+    // If JSON parsing failed, log the response text
+    if (err.message.includes('JSON')) {
+      console.error('📄 ServiceNow returned HTML instead of JSON - URL may need different format');
+    }
     
     return {
       quantity: 0,
