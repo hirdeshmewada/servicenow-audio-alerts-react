@@ -10,6 +10,12 @@ export async function playAudio(options = {}) {
     // Get audio data and settings
     const { audioData, settings } = await getAudioForPlayback();
     
+    // Check if chrome.offscreen is available
+    if (!chrome.offscreen) {
+      console.error('❌ chrome.offscreen API not available');
+      throw new Error('chrome.offscreen API is not available. Please update Chrome or check permissions.');
+    }
+    
     // Check if offscreen document exists
     const existingContexts = await chrome.runtime.getContexts({
       contextTypes: ['OFFSCREEN_DOCUMENT'],
@@ -20,12 +26,17 @@ export async function playAudio(options = {}) {
 
     if (existingContexts.length === 0) {
       console.log('🔧 Creating offscreen document...');
-      await chrome.offscreen.createDocument({
-        url: chrome.runtime.getURL('offscreen.html'),
-        reasons: ['AUDIO_PLAYBACK'],
-        justification: 'Playing audio notifications for ServiceNow updates'
-      });
-      console.log('✅ Offscreen document created');
+      try {
+        await chrome.offscreen.createDocument({
+          url: chrome.runtime.getURL('offscreen.html'),
+          reasons: ['AUDIO_PLAYBACK'],
+          justification: 'Playing audio notifications for ServiceNow updates'
+        });
+        console.log('✅ Offscreen document created');
+      } catch (offscreenError) {
+        console.error('❌ Failed to create offscreen document:', offscreenError);
+        throw new Error(`Failed to create offscreen document: ${offscreenError.message}`);
+      }
     } else {
       console.log('ℹ️ Offscreen document already exists');
     }
@@ -37,19 +48,60 @@ export async function playAudio(options = {}) {
       settings: {
         loop: options.loop !== false,
         volume: options.volume || settings.volume || 0.5,
-        duration: options.duration || settings.audioDuration
+        duration: options.duration || settings.audioDuration || 5000
       }
     };
 
     console.log('📤 Sending audio message:', message);
     await chrome.runtime.sendMessage(message);
     console.log('✅ Audio playback started');
+    return true;
     
   } catch (error) {
     console.error('❌ === AUDIO PLAYBACK ERROR ===');
     console.error('💥 Error playing audio:', error);
     console.error('🌐 Stack trace:', error.stack);
+    
+    // Try fallback method if offscreen fails
+    if (error.message.includes('chrome.offscreen API is not available')) {
+      console.log('🔄 Attempting fallback audio method...');
+      try {
+        // Fallback: Use Web Audio API directly in service worker context
+        await playAudioFallback(options);
+        return true;
+      } catch (fallbackError) {
+        console.error('❌ Fallback audio also failed:', fallbackError);
+      }
+    }
+    
     throw error;
+  }
+}
+
+// Fallback audio function for when chrome.offscreen is not available
+async function playAudioFallback(options = {}) {
+  try {
+    console.log('🔄 === FALLBACK AUDIO START ===');
+    
+    // Create a simple notification instead of audio
+    const { audioData, settings } = await getAudioForPlayback();
+    
+    // Show notification as fallback
+    if (chrome.notifications) {
+      await chrome.notifications.create({
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/ITSM128.png'),
+        title: 'Audio Alert',
+        message: 'Audio playback is not available in this browser. Please check your permissions.',
+        requireInteraction: false
+      });
+    }
+    
+    console.log('✅ Fallback notification sent');
+    return true;
+  } catch (error) {
+    console.error('❌ Fallback audio failed:', error);
+    return false;
   }
 }
 

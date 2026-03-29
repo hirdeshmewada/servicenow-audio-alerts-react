@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { playAudio } from '../../services/audioManager';
+import { playAudio, loadCustomAudio } from '../../services/audioManager';
 import { useChromeStorage } from '../../hooks/useChromeStorage';
 import './Sound.css';
 
@@ -15,6 +15,23 @@ const Sound = () => {
 
   useEffect(() => {
     loadSettings();
+    
+    // Set up storage listener for dynamic updates
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName === 'local' && changes.settings) {
+        console.log('🔄 Sound settings changed in storage, updating UI...');
+        loadSettings();
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+
+    // Cleanup listener on unmount
+    return () => {
+      if (chrome.storage.onChanged.hasListener(handleStorageChange)) {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      }
+    };
   }, []);
 
   const loadSettings = async () => {
@@ -32,22 +49,27 @@ const Sound = () => {
     alert('Sound settings saved successfully!');
   };
 
-  const handleTestAudio = async () => {
-    console.log('🔊 Testing audio with settings:', audioSettings);
+  const handleAutoSave = async (newSettings) => {
     try {
-      const success = await playAudio({
+      await saveSettings(newSettings);
+      console.log('✅ Settings auto-saved:', newSettings);
+    } catch (error) {
+      console.error('❌ Error auto-saving settings:', error);
+    }
+  };
+
+  const handleTestAudio = () => {
+    console.log('🔊 Testing audio with settings:', audioSettings);
+    // Fire and forget - like old extension
+    chrome.runtime.sendMessage({
+      type: 'PLAY_AUDIO',
+      settings: {
         volume: audioSettings.volume,
         playbackDuration: audioSettings.playbackDuration,
         loopAudio: false
-      });
-      if (success) {
-        console.log('✅ Audio test successful');
-      } else {
-        console.error('❌ Audio test failed');
       }
-    } catch (error) {
-      console.error('❌ Error testing audio:', error);
-    }
+    });
+    console.log('✅ Audio test request sent');
   };
 
   const handleReset = () => {
@@ -57,6 +79,23 @@ const Sound = () => {
       playbackDuration: 5,
       loopAudio: false
     });
+  };
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      console.log('📁 Uploading audio file:', file.name);
+      try {
+        const success = await loadCustomAudio(file);
+        if (success) {
+          setAudioSettings(prev => ({ ...prev, audioSource: 'custom' }));
+          alert('✅ Audio file uploaded successfully!');
+        }
+      } catch (error) {
+        console.error('❌ Error uploading audio file:', error);
+        alert('❌ Failed to upload audio file. Please check file format and size.');
+      }
+    }
   };
 
   return (
@@ -103,7 +142,17 @@ const Sound = () => {
                   <div className="upload-icon">📁</div>
                   <h4>Upload Custom Audio</h4>
                   <p>Drag & drop MP3 or WAV files here (max 5MB)</p>
-                  <button className="btn btn-secondary">
+                  <input 
+                    type="file" 
+                    accept="audio/*" 
+                    onChange={handleFileUpload}
+                    style={{ display: 'none' }}
+                    id="audioFileInput"
+                  />
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={() => document.getElementById('audioFileInput').click()}
+                  >
                     📂 Select File
                   </button>
                 </div>
@@ -132,7 +181,12 @@ const Sound = () => {
                   min="1" 
                   max="60" 
                   value={audioSettings.playbackDuration}
-                  onChange={(e) => setAudioSettings(prev => ({ ...prev, playbackDuration: parseInt(e.target.value) }))}
+                  onChange={(e) => {
+                    const newDuration = parseInt(e.target.value);
+                    const newSettings = { ...audioSettings, playbackDuration: newDuration };
+                    setAudioSettings(newSettings);
+                    handleAutoSave(newSettings);
+                  }}
                   className="form-slider"
                 />
                 <div className="slider-value">
@@ -149,7 +203,12 @@ const Sound = () => {
                   min="0" 
                   max="100" 
                   value={audioSettings.volume}
-                  onChange={(e) => setAudioSettings(prev => ({ ...prev, volume: parseInt(e.target.value) }))}
+                  onChange={(e) => {
+                    const newVolume = parseInt(e.target.value);
+                    const newSettings = { ...audioSettings, volume: newVolume };
+                    setAudioSettings(newSettings);
+                    handleAutoSave(newSettings);
+                  }}
                   className="form-slider"
                 />
                 <div className="slider-value">
@@ -163,7 +222,11 @@ const Sound = () => {
                 <input 
                   type="checkbox"
                   checked={audioSettings.loopAudio}
-                  onChange={(e) => setAudioSettings(prev => ({ ...prev, loopAudio: e.target.checked }))}
+                  onChange={(e) => {
+                    const newSettings = { ...audioSettings, loopAudio: e.target.checked };
+                    setAudioSettings(newSettings);
+                    handleAutoSave(newSettings);
+                  }}
                 />
                 <span className="checkbox-custom"></span>
                 Loop audio until manually stopped

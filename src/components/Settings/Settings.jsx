@@ -9,7 +9,7 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState('audio');
   const [settings, setSettings] = useState({});
   
-  const { getSettings, saveSettings } = useChromeStorage();
+  const { getSettings } = useChromeStorage();
 
   useEffect(() => {
     loadSettings();
@@ -17,23 +17,18 @@ const Settings = () => {
 
   const loadSettings = async () => {
     const savedSettings = await getSettings();
-    setSettings(savedSettings);
-  };
-
-  const handleSaveSettings = async (newSettings) => {
-    try {
-      await saveSettings(newSettings);
-      setSettings(newSettings);
-      alert('Settings saved successfully!');
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      alert('Error saving settings');
+    if (savedSettings) {
+      setSettings(savedSettings);
     }
   };
 
+  const handleSave = (newSettings) => {
+    setSettings(newSettings);
+  };
+
   const tabs = [
-    { id: 'audio', label: '🔊 Audio', icon: '🔊' },
-    { id: 'monitoring', label: '👁️ Monitoring', icon: '👁️' },
+    { id: 'audio', label: '🎵 Audio', icon: '🎵' },
+    { id: 'monitoring', label: '� Monitoring', icon: '�' },
     { id: 'notifications', label: '🔔 Notifications', icon: '🔔' }
   ];
 
@@ -44,8 +39,8 @@ const Settings = () => {
         <p>Configure audio, monitoring, and notification preferences</p>
       </div>
 
-      <div className="settings-container">
-        <div className="settings-tabs">
+      <div className="settings-tabs">
+        <div className="tab-buttons">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -60,24 +55,15 @@ const Settings = () => {
 
         <div className="settings-content">
           {activeTab === 'audio' && (
-            <AudioSettings 
-              settings={settings}
-              onSave={handleSaveSettings}
-            />
+            <AudioSettings settings={settings} onSave={handleSave} />
           )}
           
           {activeTab === 'monitoring' && (
-            <MonitoringSettings 
-              settings={settings}
-              onSave={handleSaveSettings}
-            />
+            <MonitoringSettings settings={settings} onSave={handleSave} />
           )}
           
           {activeTab === 'notifications' && (
-            <NotificationSettings 
-              settings={settings}
-              onSave={handleSaveSettings}
-            />
+            <NotificationSettings settings={settings} onSave={handleSave} />
           )}
         </div>
       </div>

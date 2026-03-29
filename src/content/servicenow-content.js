@@ -171,7 +171,14 @@ document.addEventListener('keydown', (event) => {
   // Ctrl+Shift+T to test audio
   if (event.ctrlKey && event.shiftKey && event.key === 'T') {
     event.preventDefault();
-    chrome.runtime.sendMessage({ action: 'testAudio' });
+    chrome.runtime.sendMessage({ 
+      type: 'PLAY_AUDIO',
+      settings: {
+        volume: 70,
+        playbackDuration: 5,
+        loopAudio: false
+      }
+    });
   }
 });
 

@@ -18,7 +18,22 @@ const Popup = () => {
       updateNextPollIn();
     }, 5000);
     
-    return () => clearInterval(interval);
+    // Set up storage listener for dynamic updates
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt)) {
+        console.log('🔄 Storage changed, updating popup...');
+        loadData();
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    
+    return () => {
+      clearInterval(interval);
+      if (chrome.storage.onChanged.hasListener(handleStorageChange)) {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      }
+    };
   }, []);
 
   const updateNextPollIn = () => {
@@ -88,17 +103,30 @@ const Popup = () => {
 
   const handleToggleMonitoring = async () => {
     try {
-      const newStatus = !isMonitoring;
-      await chrome.storage.local.set({ isMonitoring: newStatus });
-      setIsMonitoring(newStatus);
-      
-      // Send message to background script
-      chrome.runtime.sendMessage({
-        action: newStatus ? 'startMonitoring' : 'stopMonitoring'
-      });
+      if (isMonitoring) {
+        await chrome.runtime.sendMessage({ type: 'STOP_MONITORING' });
+        setIsMonitoring(false);
+      } else {
+        await chrome.runtime.sendMessage({ type: 'START_MONITORING' });
+        setIsMonitoring(true);
+      }
     } catch (error) {
       console.error('Error toggling monitoring:', error);
     }
+  };
+
+  const handleTestAudio = () => {
+    console.log('🔊 Testing audio from popup...');
+    // Fire and forget - like old extension
+    chrome.runtime.sendMessage({
+      type: 'PLAY_AUDIO',
+      settings: {
+        volume: 70,
+        playbackDuration: 5,
+        loopAudio: false
+      }
+    });
+    console.log('✅ Audio test request sent');
   };
 
   const handleOpenOptions = () => {
@@ -128,12 +156,20 @@ const Popup = () => {
     <div className="popup">
       <div className="popup-header">
         <div className="header-content">
-          <img src="/icons/ITSM48.png" alt="SNOW Alerts" className="popup-logo" />
+          <img src="icons/ITSM128.png" alt="ServiceNow Alerts" className="popup-logo" />
           <div className="header-info">
             <h1>SNOW Alerts</h1>
             <span className={`status ${isMonitoring ? 'active' : 'inactive'}`}>
-              {isMonitoring ? 'Monitoring' : 'Stopped'}
+              {isMonitoring ? 'Active' : 'Inactive'}
             </span>
+          </div>
+          <div className="header-actions">
+            <button className="header-btn settings" onClick={handleOpenOptions}>
+              ⚙️
+            </button>
+            <button className="header-btn test-audio" onClick={handleTestAudio}>
+              🔊
+            </button>
           </div>
         </div>
       </div>
@@ -220,7 +256,7 @@ const Popup = () => {
           </button>
           <button 
             className="action-btn"
-            onClick={() => chrome.runtime.sendMessage({ action: 'testAudio' })}
+            onClick={handleTestAudio}
           >
             🔊 Test Audio
           </button>

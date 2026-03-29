@@ -33,22 +33,18 @@ const Monitoring = () => {
     alert('Monitoring settings saved successfully!');
   };
 
-  const handleTestAudio = async () => {
+  const handleTestAudio = () => {
     console.log('🔊 Testing audio notification');
-    try {
-      const success = await playAudio({
+    // Fire and forget - like old extension
+    chrome.runtime.sendMessage({
+      type: 'PLAY_AUDIO',
+      settings: {
         volume: 70,
         playbackDuration: 5,
         loopAudio: false
-      });
-      if (success) {
-        console.log('✅ Audio test successful');
-      } else {
-        console.error('❌ Audio test failed');
       }
-    } catch (error) {
-      console.error('❌ Error testing audio:', error);
-    }
+    });
+    console.log('✅ Audio test request sent');
   };
 
   const handleTestNotification = async () => {

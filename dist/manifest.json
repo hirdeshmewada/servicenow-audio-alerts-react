@@ -8,7 +8,8 @@
     "storage",
     "notifications",
     "alarms",
-    "activeTab"
+    "activeTab",
+    "offscreen"
   ],
   "host_permissions": [
     "https://*.service-now.com/*"
@@ -27,5 +28,11 @@
     "16": "icons/ITSM16.png",
     "48": "icons/ITSM48.png",
     "128": "icons/ITSM128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["sound/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

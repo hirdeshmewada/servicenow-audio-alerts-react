@@ -27,7 +27,23 @@ const Dashboard = () => {
       loadRealtimeData();
       updateNextPollIn();
     }, 5000);
-    return () => clearInterval(interval);
+    
+    // Set up storage listener for dynamic updates
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt)) {
+        console.log('🔄 Storage changed, updating dashboard...');
+        loadRealtimeData();
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    
+    return () => {
+      clearInterval(interval);
+      if (chrome.storage.onChanged.hasListener(handleStorageChange)) {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      }
+    };
   }, []);
 
   const updateNextPollIn = () => {
