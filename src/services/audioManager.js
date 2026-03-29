@@ -1,178 +1,135 @@
-// Audio Manager Service - Migrated from original audio-manager.js
+// Audio Manager Service - Using Offscreen Documents (Manifest V3)
+// Matches old extension exactly
 
-let audioContext = null;
-let currentAudio = null;
-let audioBuffer = null;
-
-export async function initializeAudio() {
-  try {
-    if (!audioContext) {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('🎵 Audio context initialized');
-    }
-  } catch (error) {
-    console.error('❌ Error initializing audio context:', error);
-  }
-}
-
-export async function loadAudioFile(audioUrl) {
-  try {
-    await initializeAudio();
-    
-    const response = await fetch(audioUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    
-    console.log('🎵 Audio file loaded:', audioUrl);
-    return true;
-  } catch (error) {
-    console.error('❌ Error loading audio file:', error);
-    return false;
-  }
-}
-
+// Main audio notification function
 export async function playAudio(settings = {}) {
   try {
-    if (currentAudio) {
-      stopAudio();
+    // Get audio settings from storage
+    const result = await chrome.storage.local.get(['audioData', 'settings']);
+    const audioData = result.audioData || null;
+    const audioSettings = result.settings || {};
+    
+    // Create offscreen document if it doesn't exist
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: [chrome.runtime.getURL('offscreen.html')]
+    });
+
+    if (existingContexts.length === 0) {
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['AUDIO_PLAYBACK'],
+        justification: 'Playing audio notifications for ServiceNow updates'
+      });
+      console.log('📄 Created offscreen document for audio playback');
     }
 
-    await initializeAudio();
-
-    // Load default audio if no buffer exists
-    if (!audioBuffer) {
-      const loaded = await loadAudioFile('/sound/alarm-deep_groove.mp3');
-      if (!loaded) {
-        console.error('❌ Could not load audio file');
-        return false;
-      }
-    }
-
-    // Create audio source
-    const source = audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-
-    // Create gain node for volume control
-    const gainNode = audioContext.createGain();
-    const volume = (settings.volume || 70) / 100;
-    gainNode.gain.value = volume;
-
-    // Connect nodes
-    source.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    // Handle loop
-    const loopAudio = settings.loopAudio || false;
-    source.loop = loopAudio;
-
-    // Start playback
-    source.start();
-    currentAudio = source;
-
-    // Handle playback end
-    source.onended = () => {
-      if (!loopAudio) {
-        currentAudio = null;
-        console.log('🔇 Audio playback completed');
-      }
-    };
-
-    // Auto-stop after duration if specified
-    const playbackDuration = settings.playbackDuration || 5;
-    if (playbackDuration > 0 && !loopAudio) {
-      setTimeout(() => {
-        if (currentAudio === source) {
-          stopAudio();
-        }
-      }, playbackDuration * 1000);
-    }
-
-    console.log('🔊 Audio playing with settings:', settings);
+    // Send message to offscreen document with audio data and settings
+    await chrome.runtime.sendMessage({ 
+      type: "PLAY_AUDIO",
+      audioData: audioData,
+      settings: { ...audioSettings, ...settings }
+    });
+    console.log('🎵 Audio notification sent to offscreen document');
     return true;
   } catch (error) {
-    console.error('❌ Error playing audio:', error);
+    console.log('❌ Could not play audio notification:', error);
     return false;
   }
 }
 
-export function stopAudio() {
+// Stop audio notification function
+export async function stopAudio() {
   try {
-    if (currentAudio) {
-      currentAudio.stop();
-      currentAudio = null;
-      console.log('🔇 Audio stopped');
-    }
+    await chrome.runtime.sendMessage({ type: "STOP_AUDIO" });
+    console.log('� Audio stop notification sent to offscreen document');
+    return true;
   } catch (error) {
-    console.error('❌ Error stopping audio:', error);
+    console.log('❌ Could not stop audio notification:', error);
+    return false;
   }
 }
 
-export async function testAudio(settings) {
+// Test audio notification function
+export async function testAudio() {
   try {
-    console.log('🧪 Testing audio with settings:', settings);
-    const success = await playAudio(settings);
-    
-    if (!success) {
-      console.error('❌ Audio test failed');
-      return false;
+    console.log('🔊 Testing audio notification...');
+    const result = await playAudio({ loop: false, duration: 5 });
+    if (result) {
+      console.log('✅ Audio test completed successfully');
+    } else {
+      console.log('❌ Audio test failed');
     }
-    
-    console.log('✅ Audio test successful');
-    return true;
+    return result;
   } catch (error) {
     console.error('❌ Error testing audio:', error);
     return false;
   }
 }
 
-export async function loadCustomAudio(audioData) {
+// Load custom audio file
+export async function loadCustomAudio(file) {
   try {
-    await initializeAudio();
-    
-    const arrayBuffer = audioData instanceof ArrayBuffer 
-      ? audioData 
-      : await audioData.arrayBuffer();
-    
-    audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    
-    console.log('🎵 Custom audio loaded');
-    return true;
+    const reader = new FileReader();
+    return new Promise((resolve, reject) => {
+      reader.onload = async (event) => {
+        try {
+          const arrayBuffer = event.target.result;
+          const base64 = btoa(
+            new Uint8Array(arrayBuffer).reduce(
+              (data, byte) => data + String.fromCharCode(byte),
+              ''
+            )
+          );
+          
+          // Store custom audio data
+          await chrome.storage.local.set({
+            audioData: {
+              data: base64,
+              type: file.type,
+              name: file.name
+            }
+          });
+          
+          console.log('🎵 Custom audio loaded:', file.name);
+          resolve(true);
+        } catch (error) {
+          console.error('❌ Error processing audio file:', error);
+          reject(error);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
   } catch (error) {
     console.error('❌ Error loading custom audio:', error);
     return false;
   }
 }
 
-export function getAudioState() {
-  return {
-    isPlaying: currentAudio !== null,
-    hasAudioBuffer: audioBuffer !== null,
-    audioContextReady: audioContext !== null && audioContext.state === 'running'
-  };
-}
-
-export async function resumeAudioContext() {
+// Get audio for playback (matches old extension)
+export async function getAudioForPlayback() {
   try {
-    if (audioContext && audioContext.state === 'suspended') {
-      await audioContext.resume();
-      console.log('🎵 Audio context resumed');
-    }
+    const result = await chrome.storage.local.get(['audioData', 'settings']);
+    return {
+      audioData: result.audioData || null,
+      settings: result.settings || {}
+    };
   } catch (error) {
-    console.error('❌ Error resuming audio context:', error);
+    console.error('❌ Error getting audio data:', error);
+    return {
+      audioData: null,
+      settings: {}
+    };
   }
 }
 
-// Cleanup on extension unload
-export function cleanupAudio() {
+// Cleanup function
+export async function cleanup() {
   try {
-    stopAudio();
-    if (audioContext) {
-      audioContext.close();
-      audioContext = null;
-    }
-    audioBuffer = null;
-    console.log('🧹 Audio resources cleaned up');
+    await stopAudio();
+    console.log('🧹 Audio cleanup completed');
   } catch (error) {
-    console.error('❌ Error cleaning up audio:', error);
+    console.error('❌ Error during cleanup:', error);
   }
 }

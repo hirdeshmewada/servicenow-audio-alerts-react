@@ -14,7 +14,7 @@ const RecentTickets = ({ queues }) => {
       }
     });
     
-    return allTickets.slice(0, 5).sort((a, b) => {
+    return allTickets.sort((a, b) => {
       return new Date(b.sys_created_on) - new Date(a.sys_created_on);
     });
   };

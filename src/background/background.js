@@ -137,50 +137,138 @@ async function getMonitoringStatus() {
 // Poll queues for updates
 async function pollQueues() {
   try {
-    console.log('🔍 Polling queues');
+    console.log('🔍 === POLLING CYCLE START ===');
+    console.log('⏰ Polling cycle started at:', new Date().toISOString());
     
     const data = await chrome.storage.local.get(['queues', 'settings', 'previousCounts']);
     const { queues = [], settings = {}, previousCounts = {} } = data;
     
+    console.log('📊 Retrieved data:', {
+      totalQueues: queues.length,
+      enabledQueues: queues.filter(q => q.enabled).length,
+      settings: settings,
+      previousCounts: previousCounts
+    });
+    
     if (settings.disablePolling) {
-      console.log('⏸️ Polling is disabled');
+      console.log('⏸️ Polling is disabled - skipping cycle');
       return;
     }
     
     let hasChanges = false;
     const newCounts = {};
     
+    // Store last poll time BEFORE polling
+    const lastPollAt = new Date().toISOString();
+    await chrome.storage.local.set({ lastPollAt });
+    console.log('⏰ Last poll time stored:', lastPollAt);
+    
     // Poll each queue
-    for (const queue of queues) {
-      if (!queue.enabled || !queue.url) continue;
+    console.log('🔄 Starting to poll each queue...');
+    for (let i = 0; i < queues.length; i++) {
+      const queue = queues[i];
+      console.log(`\n--- Queue ${i + 1}/${queues.length}: ${queue.name} ---`);
+      console.log('📋 Queue details:', {
+        id: queue.id,
+        name: queue.name,
+        enabled: queue.enabled,
+        hasUrl: !!queue.url,
+        url: queue.url ? queue.url.substring(0, 100) + '...' : 'none'
+      });
+      
+      if (!queue.enabled || !queue.url) {
+        console.log(`⏭️ Skipping queue ${queue.name} - ${!queue.enabled ? 'disabled' : 'no URL'}`);
+        continue;
+      }
+      
+      console.log('🌐 Starting API call for queue:', queue.name);
+      const apiStart = Date.now();
       
       try {
         const result = await fetchQueueData(queue.url);
-        const count = result.quantity;
+        const apiTime = Date.now() - apiStart;
         
+        console.log('✅ API call successful:', {
+          queue: queue.name,
+          responseTime: `${apiTime}ms`,
+          totalRecords: result.quantity,
+          hasRecords: result.records.length > 0
+        });
+        
+        const count = result.quantity;
         newCounts[queue.id] = count;
+        
+        // Update queue count in storage for popup/dashboard
+        queue.currentCount = count;
+        queue.lastUpdated = lastPollAt;
+        queue.records = result.records || []; // Store full records for dashboard
+        
+        console.log('💾 Queue updated:', {
+          name: queue.name,
+          currentCount: count,
+          recordsStored: result.records.length,
+          lastUpdated: lastPollAt
+        });
         
         // Check for changes
         const previousCount = previousCounts[queue.id] || 0;
+        console.log('📈 Count comparison:', {
+          queue: queue.name,
+          previous: previousCount,
+          current: count,
+          change: count - previousCount,
+          alertCondition: settings.alertCondition
+        });
         
         if (shouldAlert(count, previousCount, settings.alertCondition)) {
+          console.log('🚨 Alert condition met - preparing notification for:', queue.name);
           await handleAlert(queue, result, settings);
+        } else {
+          console.log('🔕 No alert needed for:', queue.name);
         }
         
         // Update badge
         updateBadge(queues, newCounts);
         
       } catch (error) {
-        console.error(`❌ Error polling queue ${queue.name}:`, error);
+        const apiTime = Date.now() - apiStart;
+        console.error(`❌ API call failed for ${queue.name}:`, {
+          error: error.message,
+          responseTime: `${apiTime}ms`,
+          queue: queue.name
+        });
+        
+        queue.currentCount = 0;
+        queue.lastUpdated = lastPollAt;
+        queue.records = []; // Empty records on error
+        queue.error = error.message;
       }
     }
     
-    // Save new counts
-    await chrome.storage.local.set({ previousCounts: newCounts });
+    console.log('\n💾 Storing polling results...');
+    // Save new counts and updated queues
+    await chrome.storage.local.set({ 
+      previousCounts: newCounts,
+      queues: queues,
+      lastPollAt: lastPollAt
+    });
     
-    console.log('✅ Queue polling completed');
+    // Calculate next poll time
+    const pollingInterval = settings.pollingInterval || 5; // Default 5 minutes
+    const nextPollAt = new Date(Date.now() + (pollingInterval * 60 * 1000)).toISOString();
+    await chrome.storage.local.set({ nextPollAt });
+    
+    console.log('⏰ Next poll scheduled:', {
+      interval: `${pollingInterval} minutes`,
+      nextPollAt: nextPollAt,
+      timeUntilNext: `${pollingInterval}:00`
+    });
+    
+    console.log('✅ === POLLING CYCLE COMPLETE ===');
   } catch (error) {
-    console.error('❌ Error polling queues:', error);
+    console.error('❌ === POLLING CYCLE ERROR ===');
+    console.error('💥 Error in polling cycle:', error);
+    console.error('🌐 Stack trace:', error.stack);
   }
 }
 
@@ -198,25 +286,126 @@ function shouldAlert(currentCount, previousCount, alertCondition) {
 // Handle alert for queue
 async function handleAlert(queue, result, settings) {
   try {
+    console.log('\n🚨 === ALERT HANDLING START ===');
+    console.log('📋 Alert details:', {
+      queueName: queue.name,
+      queueId: queue.id,
+      ticketCount: result.quantity,
+      alertCondition: settings.alertCondition,
+      settings: settings
+    });
+    
     const message = queue.notificationText || `New tickets in ${queue.name}`;
+    console.log('💬 Notification message prepared:', message);
     
-    // Send notification
+    // Step 1: Send notification
+    console.log('📢 Step 1: Creating browser notification...');
+    const notificationStart = Date.now();
+    
     if (!settings.disableAlarm) {
+      console.log('🔔 Notifications enabled - proceeding with notification');
+      
+      // Get latest ticket for notification details
+      const latestTicket = result.records && result.records.length > 0 ? result.records[0] : null;
+      console.log('🎫 Latest ticket for notification:', latestTicket ? {
+        number: latestTicket.number,
+        description: latestTicket.short_description,
+        severity: latestTicket.severity || 'info'
+      } : 'No tickets available');
+      
       await showNotification(
-        'ServiceNow Alert',
-        message,
-        'info'
+        latestTicket ? latestTicket.number : 'ServiceNow Alert',
+        latestTicket ? latestTicket.short_description : message,
+        latestTicket ? latestTicket.severity : 'info',
+        null, // custom title
+        queue.url // queue URL for click handler
       );
+      
+      const notificationTime = Date.now() - notificationStart;
+      console.log('✅ Notification sent successfully:', {
+        queueName: queue.name,
+        time: `${notificationTime}ms`,
+        ticketNumber: latestTicket?.number || 'N/A'
+      });
+    } else {
+      console.log('🔕 Notifications disabled - skipping notification');
     }
     
-    // Play audio
+    // Step 2: Play audio
+    console.log('🎵 Step 2: Playing audio notification...');
+    const audioStart = Date.now();
+    
     if (!settings.disableAlarm && settings.enableSound !== false) {
-      await playAudio();
+      console.log('🔊 Audio enabled - proceeding with audio playback');
+      
+      await playAudio({
+        loop: settings.loopAudio !== false,
+        volume: settings.volume || 0.5,
+        duration: settings.audioDuration
+      });
+      
+      const audioTime = Date.now() - audioStart;
+      console.log('✅ Audio playback started:', {
+        queueName: queue.name,
+        time: `${audioTime}ms`,
+        settings: {
+          loop: settings.loopAudio !== false,
+          volume: settings.volume || 0.5,
+          duration: settings.audioDuration
+        }
+      });
+    } else {
+      console.log('� Audio disabled - skipping audio playback');
     }
     
-    console.log('🚨 Alert sent for queue:', queue.name);
+    // Step 3: Update badge
+    console.log('🏷️ Step 3: Updating extension badge...');
+    const badgeStart = Date.now();
+    
+    try {
+      const data = await chrome.storage.local.get(['queues', 'previousCounts']);
+      const { queues: currentQueues, previousCounts } = data;
+      const currentCounts = {};
+      
+      // Build current counts from this poll result
+      currentQueues.forEach(q => {
+        if (q.id === queue.id) {
+          currentCounts[q.id] = result.quantity;
+        } else {
+          currentCounts[q.id] = previousCounts[q.id] || 0;
+        }
+      });
+      
+      updateBadge(currentQueues, currentCounts);
+      
+      const badgeTime = Date.now() - badgeStart;
+      console.log('✅ Badge updated:', {
+        queueName: queue.name,
+        time: `${badgeTime}ms`,
+        totalCount: Object.values(currentCounts).reduce((sum, count) => sum + count, 0)
+      });
+    } catch (badgeError) {
+      console.error('❌ Badge update failed:', badgeError);
+    }
+    
+    console.log('🚨 === ALERT HANDLING COMPLETE ===');
+    console.log('📊 Alert summary:', {
+      queueName: queue.name,
+      ticketCount: result.quantity,
+      notificationSent: !settings.disableAlarm,
+      audioPlayed: !settings.disableAlarm && settings.enableSound !== false,
+      processingTime: `${Date.now() - notificationStart}ms total`
+    });
+    
   } catch (error) {
-    console.error('❌ Error handling alert:', error);
+    console.error('❌ === ALERT HANDLING ERROR ===');
+    console.error('💥 Error handling alert:', error);
+    console.error('📋 Queue info:', {
+      name: queue.name,
+      id: queue.id,
+      url: queue.url
+    });
+    console.error('🌐 Stack trace:', error.stack);
   }
 }
 

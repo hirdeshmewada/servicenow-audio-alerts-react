@@ -186,7 +186,7 @@ export const fetchQueueData = async (url) => {
 
     if (records.length > 0) {
       console.log('🎫 Sample record:', records[0]);
-      console.log('🏷️ Ticket numbers:', records.map(r => r.number).slice(0, 5));
+      console.log('🏷️ All ticket numbers:', records.map(r => r.number));
     }
 
     console.log('✅ === FETCH SUCCESS ===');

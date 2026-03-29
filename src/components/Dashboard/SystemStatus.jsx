@@ -1,6 +1,6 @@
 import React from 'react';
 
-const SystemStatus = ({ status, lastPoll, isMonitoring }) => {
+const SystemStatus = ({ status, lastPoll, nextPoll, nextPollIn, isMonitoring }) => {
   const getStatusBadge = () => {
     switch (status) {
       case 'active':
@@ -30,13 +30,13 @@ const SystemStatus = ({ status, lastPoll, isMonitoring }) => {
           </div>
           <div className="info-row">
             <span className="label">Next Poll:</span>
-            <span className="value">--:--</span>
+            <span className="value">{nextPoll}</span>
           </div>
         </div>
         <div className="countdown-container">
           <div className="countdown-label">Next Poll In</div>
           <div className="countdown-timer">
-            <span className="countdown-value">--:--</span>
+            <span className="countdown-value">{nextPollIn}</span>
             <div className="countdown-progress">
               <div className="countdown-progress-bar"></div>
             </div>

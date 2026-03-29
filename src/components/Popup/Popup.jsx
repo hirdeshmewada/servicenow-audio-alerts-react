@@ -5,18 +5,59 @@ const Popup = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [queues, setQueues] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [lastPollAt, setLastPollAt] = useState(null);
+  const [nextPollAt, setNextPollAt] = useState(null);
+  const [nextPollIn, setNextPollIn] = useState('--:--');
 
   useEffect(() => {
     loadData();
+    // Set up real-time updates
+    const interval = setInterval(() => {
+      loadData();
+      updateNextPollIn();
+    }, 1000);
+    
+    return () => clearInterval(interval);
   }, []);
+
+  const updateNextPollIn = () => {
+    if (nextPollAt) {
+      const now = new Date();
+      const nextPoll = new Date(nextPollAt);
+      const diff = nextPoll - now;
+      
+      if (diff > 0) {
+        const minutes = Math.floor(diff / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        setNextPollIn(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      } else {
+        setNextPollIn('Polling...');
+      }
+    } else {
+      setNextPollIn('--:--');
+    }
+  };
+
+  useEffect(() => {
+    updateNextPollIn();
+    const interval = setInterval(updateNextPollIn, 1000);
+    return () => clearInterval(interval);
+  }, [nextPollAt]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       // Use Chrome API directly for better compatibility
-      const result = await chrome.storage.local.get(['isMonitoring', 'queues']);
+      const result = await chrome.storage.local.get([
+        'isMonitoring', 
+        'queues', 
+        'lastPollAt', 
+        'nextPollAt'
+      ]);
       setIsMonitoring(result.isMonitoring || false);
       setQueues(result.queues || []);
+      setLastPollAt(result.lastPollAt);
+      setNextPollAt(result.nextPollAt);
     } catch (error) {
       console.error('Error loading popup data:', error);
       setIsMonitoring(false);
@@ -24,6 +65,14 @@ const Popup = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatTime = (dateString) => {
+    if (!dateString) return 'Never';
+    return new Date(dateString).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
   };
 
   const handleToggleMonitoring = async () => {
@@ -89,6 +138,18 @@ const Popup = () => {
               <span className="label">Active Queues:</span>
               <span className="value">{getEnabledQueues().length}</span>
             </div>
+            <div className="info-item">
+              <span className="label">Last Poll:</span>
+              <span className="value">{formatTime(lastPollAt)}</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Next Poll:</span>
+              <span className="value">{formatTime(nextPollAt)}</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Next Poll In:</span>
+              <span className="value">{nextPollIn}</span>
+            </div>
           </div>
           
           <button 
@@ -116,6 +177,9 @@ const Popup = () => {
                   </div>
                   <div className="queue-status">
                     <span className={`status-dot ${queue.enabled ? 'active' : 'inactive'}`}></span>
+                    {queue.error && (
+                      <span className="error-indicator" title={queue.error}>⚠️</span>
+                    )}
                   </div>
                 </div>
               ))}

@@ -11,17 +11,73 @@ const Dashboard = () => {
   const [queues, setQueues] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [systemStatus, setSystemStatus] = useState('inactive');
-  const [lastPoll, setLastPoll] = useState('Never');
+  const [lastPollAt, setLastPollAt] = useState(null);
+  const [nextPollAt, setNextPollAt] = useState(null);
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [nextPollIn, setNextPollIn] = useState('--:--');
   
   const { getQueues, updateQueueCount } = useChromeStorage();
   const { fetchQueueData, loading, error } = useServiceNowAPI();
   const { showNotification } = useNotifications();
 
   useEffect(() => {
-    loadQueues();
-    const interval = setInterval(loadQueues, 5000);
+    loadRealtimeData();
+    // Set up real-time updates every second
+    const interval = setInterval(() => {
+      loadRealtimeData();
+      updateNextPollIn();
+    }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const updateNextPollIn = () => {
+    if (nextPollAt) {
+      const now = new Date();
+      const nextPoll = new Date(nextPollAt);
+      const diff = nextPoll - now;
+      
+      if (diff > 0) {
+        const minutes = Math.floor(diff / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        setNextPollIn(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      } else {
+        setNextPollIn('Polling...');
+      }
+    } else {
+      setNextPollIn('--:--');
+    }
+  };
+
+  useEffect(() => {
+    updateNextPollIn();
+    const interval = setInterval(updateNextPollIn, 1000);
+    return () => clearInterval(interval);
+  }, [nextPollAt]);
+
+  const loadRealtimeData = async () => {
+    try {
+      const result = await chrome.storage.local.get([
+        'queues', 
+        'lastPollAt', 
+        'nextPollAt', 
+        'isMonitoring'
+      ]);
+      
+      setQueues(result.queues || []);
+      setLastPollAt(result.lastPollAt);
+      setNextPollAt(result.nextPollAt);
+      setIsMonitoring(result.isMonitoring || false);
+      
+      // Update system status based on monitoring state
+      if (result.isMonitoring) {
+        setSystemStatus('active');
+      } else {
+        setSystemStatus('inactive');
+      }
+    } catch (error) {
+      console.error('Error loading real-time data:', error);
+    }
+  };
 
   const loadQueues = async () => {
     const savedQueues = await getQueues();
@@ -47,13 +103,21 @@ const Dashboard = () => {
           }
         }
       }
-      setLastPoll(new Date().toLocaleTimeString());
+      setLastPollAt(new Date().toISOString());
     } catch (err) {
       console.error('Refresh error:', err);
     } finally {
       setIsRefreshing(false);
       setSystemStatus('idle');
     }
+  };
+
+  const formatTime = (dateString) => {
+    if (!dateString) return 'Never';
+    return new Date(dateString).toLocaleTimeString([], { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
   };
 
   return (
@@ -71,8 +135,10 @@ const Dashboard = () => {
       
       <SystemStatus 
         status={systemStatus} 
-        lastPoll={lastPoll}
-        isMonitoring={queues.some(q => q.enabled)}
+        lastPoll={formatTime(lastPollAt)}
+        nextPoll={formatTime(nextPollAt)}
+        nextPollIn={nextPollIn}
+        isMonitoring={isMonitoring}
       />
       
       <div className="dashboard-grid">
