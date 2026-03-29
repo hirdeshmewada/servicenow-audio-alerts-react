@@ -18,8 +18,8 @@ const Sound = () => {
     
     // Set up storage listener for dynamic updates
     const handleStorageChange = (changes, areaName) => {
-      if (areaName === 'local' && changes.settings) {
-        console.log('🔄 Sound settings changed in storage, updating UI...');
+      if (areaName === 'sync' && changes.settings) {
+        console.log('🔄 Sound settings changed in sync storage, updating UI...');
         loadSettings();
       }
     };

@@ -21,8 +21,21 @@ const Popup = () => {
     
     // Set up storage listener for dynamic updates
     const handleStorageChange = (changes, areaName) => {
-      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt || changes.pollInterval)) {
-        console.log('🔄 Storage changed, updating popup...');
+      console.log('🔄 Storage changed:', areaName, changes);
+      
+      // Reload data for any relevant changes
+      const shouldReload = (
+        (areaName === 'local' && (
+          changes.isMonitoring || 
+          changes.queues || 
+          changes.lastPollAt || 
+          changes.nextPollAt
+        )) ||
+        (areaName === 'sync' && changes.pollInterval)
+      );
+      
+      if (shouldReload) {
+        console.log('🔄 Reloading popup data...');
         loadData();
       }
     };
@@ -74,28 +87,30 @@ const Popup = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      // Use Chrome API directly for better compatibility
-      const result = await chrome.storage.local.get([
+      // Read monitoring state from local storage
+      const localResult = await chrome.storage.local.get([
         'isMonitoring', 
         'queues', 
         'lastPollAt', 
-        'nextPollAt',
-        'pollInterval'
+        'nextPollAt'
       ]);
       
+      // Read pollInterval from sync storage (settings)
+      const syncResult = await chrome.storage.sync.get(['pollInterval']);
+      
       console.log('📊 Popup loading data:', {
-        isMonitoring: result.isMonitoring,
-        queuesCount: result.queues?.length || 0,
-        lastPollAt: result.lastPollAt,
-        nextPollAt: result.nextPollAt,
-        pollInterval: result.pollInterval
+        isMonitoring: localResult.isMonitoring,
+        queuesCount: localResult.queues?.length || 0,
+        lastPollAt: localResult.lastPollAt,
+        nextPollAt: localResult.nextPollAt,
+        pollInterval: syncResult.pollInterval || 5
       });
       
-      setIsMonitoring(result.isMonitoring || false);
-      setQueues(result.queues || []);
-      setLastPollAt(result.lastPollAt);
-      setNextPollAt(result.nextPollAt);
-      setPollInterval(result.pollInterval || 5);
+      setIsMonitoring(localResult.isMonitoring || false);
+      setQueues(localResult.queues || []);
+      setLastPollAt(localResult.lastPollAt);
+      setNextPollAt(localResult.nextPollAt);
+      setPollInterval(syncResult.pollInterval || 5);
     } catch (error) {
       console.error('Error loading popup data:', error);
       setIsMonitoring(false);

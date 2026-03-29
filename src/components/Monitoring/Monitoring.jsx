@@ -16,6 +16,23 @@ const Monitoring = () => {
 
   useEffect(() => {
     loadSettings();
+    
+    // Set up storage listener for dynamic updates
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName === 'sync' && changes.settings) {
+        console.log('🔄 Monitoring settings changed in sync storage, updating UI...');
+        loadSettings();
+      }
+    };
+    
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    
+    // Cleanup listener on unmount
+    return () => {
+      if (chrome.storage.onChanged.hasListener(handleStorageChange)) {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      }
+    };
   }, []);
 
   const loadSettings = async () => {

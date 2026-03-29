@@ -35,7 +35,8 @@ export const useChromeStorage = () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await webext.storage.local.get(['settings']);
+      // Use chrome.storage.sync for settings like old extension
+      const result = await webext.storage.sync.get(['settings']);
       return result.settings || {
         pollInterval: 5,
         disableAlarm: false,
@@ -57,7 +58,9 @@ export const useChromeStorage = () => {
     setLoading(true);
     setError(null);
     try {
-      await webext.storage.local.set({ settings });
+      // Use chrome.storage.sync for settings like old extension
+      await webext.storage.sync.set({ settings });
+      console.log('💾 Settings saved to sync storage:', settings);
     } catch (err) {
       setError(err.message);
     } finally {

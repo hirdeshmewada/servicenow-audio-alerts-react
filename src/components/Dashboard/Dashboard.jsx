@@ -31,8 +31,24 @@ const Dashboard = () => {
     
     // Set up storage listener for dynamic updates
     const handleStorageChange = (changes, areaName) => {
-      if (areaName === 'local' && (changes.settings || changes.isMonitoring || changes.lastPollAt || changes.nextPollAt || changes.pollInterval)) {
-        console.log('🔄 Storage changed, updating dashboard...');
+      console.log('🔄 Dashboard storage changed:', areaName, changes);
+      
+      // Reload data for any relevant changes
+      const shouldReload = (
+        (areaName === 'local' && (
+          changes.isMonitoring || 
+          changes.queues || 
+          changes.lastPollAt || 
+          changes.nextPollAt
+        )) ||
+        (areaName === 'sync' && (
+          changes.settings || 
+          changes.pollInterval
+        ))
+      );
+      
+      if (shouldReload) {
+        console.log('🔄 Reloading dashboard data...');
         loadRealtimeData();
       }
     };

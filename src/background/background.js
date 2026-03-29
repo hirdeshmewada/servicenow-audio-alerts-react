@@ -1,11 +1,37 @@
 // ServiceNow Audio Alerts - Background Service Worker (Manifest V3)
 // Self-contained - no external imports to avoid webpack issues
 
-// Get settings directly from storage
+// Get settings from storage
 async function getSettings() {
   try {
-    const result = await chrome.storage.local.get(['settings']);
-    return result.settings || {
+    console.log('📋 Loading settings from storage...');
+    // Use chrome.storage.sync for settings like old extension
+    const result = await chrome.storage.sync.get([
+      'pollInterval', 'disableAlarm', 'disablePolling', 'alertCondition',
+      'volume', 'playbackDuration', 'loopAudio', 'enableDesktop', 'enableSound', 'quietHours', 'quietStart', 'quietEnd', 'showTicketDetails'
+    ]);
+    
+    const settings = {
+      pollInterval: result.pollInterval || 5,
+      disableAlarm: result.disableAlarm || false,
+      disablePolling: result.disablePolling || false,
+      alertCondition: result.alertCondition || 'nonZeroCount',
+      volume: result.volume || 70,
+      playbackDuration: result.playbackDuration || 5,
+      loopAudio: result.loopAudio || false,
+      enableDesktop: result.enableDesktop || true,
+      enableSound: result.enableSound || true,
+      quietHours: result.quietHours || false,
+      quietStart: result.quietStart || '22:00',
+      quietEnd: result.quietEnd || '08:00',
+      showTicketDetails: result.showTicketDetails || true
+    };
+    
+    console.log('✅ Settings loaded:', settings);
+    return settings;
+  } catch (error) {
+    console.error('❌ Error getting settings:', error);
+    return {
       pollInterval: 5,
       disableAlarm: false,
       disablePolling: false,
@@ -20,9 +46,6 @@ async function getSettings() {
       quietEnd: '08:00',
       showTicketDetails: true
     };
-  } catch (error) {
-    console.error('Error getting settings:', error);
-    return {};
   }
 }
 
@@ -39,6 +62,19 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
   }
 });
+
+// Direct function to stop audio without message loop
+async function stopAudioDirectly() {
+  try {
+    console.log('🔇 Stopping audio directly');
+    // Send to offscreen document
+    chrome.runtime.sendMessage({ type: "STOP_AUDIO" }).catch(() => {
+      console.log('Offscreen document not found or already stopped');
+    });
+  } catch (error) {
+    console.error('❌ Error stopping audio directly:', error);
+  }
+}
 
 // Main message handler
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -61,20 +97,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async
   }
   
-  // Direct function to stop audio without message loop
-async function stopAudioDirectly() {
-  try {
-    console.log('🔇 Stopping audio directly');
-    // Send to offscreen document
-    chrome.runtime.sendMessage({ type: "STOP_AUDIO" }).catch(() => {
-      console.log('Offscreen document not found or already stopped');
-    });
-  } catch (error) {
-    console.error('❌ Error stopping audio directly:', error);
-  }
-}
-
-// Handle STOP_AUDIO message (from popup/test)
+  // Handle STOP_AUDIO message (from popup/test)
   if (message.type === 'STOP_AUDIO') {
     console.log('🔇 Stop audio request received');
     stopAudioDirectly();
@@ -188,9 +211,15 @@ async function startMonitoring() {
     });
     
     const nextPollAt = new Date(Date.now() + pollInterval * 60 * 1000).toISOString();
+    
+    // Save monitoring state to local storage (runtime data)
     await chrome.storage.local.set({ 
       isMonitoring: true,
-      nextPollAt: nextPollAt,
+      nextPollAt: nextPollAt
+    });
+    
+    // Save pollInterval to sync storage (settings)
+    await chrome.storage.sync.set({ 
       pollInterval: pollInterval
     });
     
@@ -313,12 +342,15 @@ async function pollQueues() {
     updateBadge(queues, newCounts);
     console.log('=== POLLING COMPLETE ===');
     console.log('New counts:', newCounts);
-    console.log('New ticket list length:', newTicketList.length);
+    
+    // Calculate total tickets across all queues (like old extension)
+    const totalCount = Object.values(newCounts).reduce((sum, count) => sum + count, 0);
+    console.log('Total ticket count:', totalCount);
+    console.log('Previous total count:', Object.values(previousCounts).reduce((sum, count) => sum + count, 0));
   } catch (error) {
     console.error('❌ Error polling queues:', error);
   }
 }
-
 // Progressive decoding for multiple encoding levels (matches old extension)
 function progressiveDecode(encodedString) {
   let decoded = encodedString;
@@ -505,17 +537,27 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
   switch (alertCondition) {
     case 'alarmOnNewEntry':
       // Check for new tickets by comparing lists (like old extension)
+      console.log('=== NEW TICKET DETECTION LOGIC ===');
+      console.log('Previous list:', oldTicketList);
+      console.log('New list:', newTicketList);
+      console.log('Previous list length:', oldTicketList.length);
+      console.log('New list length:', newTicketList.length);
+      
+      // Find tickets that are in new list but not in old list
+      const difference = newTicketList.filter(x => !oldTicketList.includes(x));
+      console.log('New tickets detected (difference):', difference);
+      
+      // Only trigger if:
+      // 1. This is not the first run (oldTicketList is not empty)
+      // 2. There are actual new tickets (difference > 0)
       if (oldTicketList.length === 0) {
         console.log('🔄 First run - treating all tickets as existing');
         return false;
       }
       
-      // Find tickets that are in new list but not in old list
-      const difference = newTicketList.filter(x => !oldTicketList.includes(x));
-      console.log('New tickets detected:', difference);
-      
       if (difference.length > 0) {
         console.log('✅ Triggering - new tickets condition met');
+        console.log('New tickets:', difference);
         return true;
       } else {
         console.log('❌ No new tickets detected');
@@ -539,18 +581,6 @@ async function handleAlert(queue, result, settings) {
   try {
     console.log('🚨 Alert for:', queue.name);
     
-    const latestTicket = result.records && result.records.length > 0 ? result.records[0] : null;
-    
-    if (latestTicket) {
-      await showNotification(
-        latestTicket.number,
-        latestTicket.short_description,
-        latestTicket.severity,
-        queue.notificationText || null,
-        queue.url
-      );
-    }
-    
     // Play audio only if not disabled
     if (!settings.disableAlarm) {
       await handlePlayAudio({
@@ -558,6 +588,27 @@ async function handleAlert(queue, result, settings) {
         volume: settings.volume || 70,
         playbackDuration: settings.playbackDuration || 5
       });
+    }
+    
+    // Create notification for the queue
+    const latestTicket = result.records && result.records.length > 0 ? result.records[0] : null;
+    
+    if (latestTicket) {
+      // Determine notification title based on alert condition
+      let customTitle;
+      if (settings.alertCondition === 'nonZeroCount') {
+        customTitle = queue.notificationText || 'Tickets Available';
+      } else if (settings.alertCondition === 'alarmOnNewEntry') {
+        customTitle = queue.notificationText || 'New tickets in Queue';
+      }
+      
+      await showNotification(
+        latestTicket.number,
+        latestTicket.short_description,
+        latestTicket.severity,
+        customTitle,
+        queue.url
+      );
     }
   } catch (error) {
     console.error('❌ Error handling alert:', error);
