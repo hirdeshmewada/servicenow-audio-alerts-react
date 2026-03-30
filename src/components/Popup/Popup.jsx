@@ -24,6 +24,11 @@ const Popup = () => {
     const handleStorageChange = (changes, areaName) => {
       console.log('🔄 Storage changed:', areaName, changes);
       
+      // Check specifically for nextPollAt update
+      if (areaName === 'local' && changes.nextPollAt) {
+        console.log('⏰ Popup received nextPollAt update:', changes.nextPollAt.newValue);
+      }
+      
       // Always reload data for any relevant changes
       const shouldReload = (
         (areaName === 'local' && (

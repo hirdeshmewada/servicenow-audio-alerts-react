@@ -40,6 +40,11 @@ const Dashboard = () => {
     const handleStorageChange = (changes, areaName) => {
       console.log('🔄 Dashboard storage changed:', areaName, changes);
       
+      // Check specifically for nextPollAt update
+      if (areaName === 'local' && changes.nextPollAt) {
+        console.log('⏰ Dashboard received nextPollAt update:', changes.nextPollAt.newValue);
+      }
+      
       // Reload data for any relevant changes
       const shouldReload = (
         (areaName === 'local' && (

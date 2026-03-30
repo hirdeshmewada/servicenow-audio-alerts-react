@@ -6,25 +6,45 @@ async function getSettings() {
   try {
     console.log('📋 Loading settings from storage...');
     // Use chrome.storage.sync for settings like old extension
-    const result = await chrome.storage.sync.get([
-      'pollInterval', 'disableAlarm', 'disablePolling', 'alertCondition',
-      'volume', 'playbackDuration', 'loopAudio', 'enableDesktop', 'enableSound', 'quietHours', 'quietStart', 'quietEnd', 'showTicketDetails'
-    ]);
+    const result = await chrome.storage.sync.get(['settings']);
     
-    const settings = {
-      pollInterval: result.pollInterval || 5,
-      disableAlarm: result.disableAlarm || false,
-      disablePolling: result.disablePolling || false,
-      alertCondition: result.alertCondition || 'nonZeroCount',
-      volume: result.volume || 70,
-      playbackDuration: result.playbackDuration || 5,
-      loopAudio: result.loopAudio || false,
-      enableDesktop: result.enableDesktop || true,
-      enableSound: result.enableSound || true,
-      quietHours: result.quietHours || false,
-      quietStart: result.quietStart || '22:00',
-      quietEnd: result.quietEnd || '08:00',
-      showTicketDetails: result.showTicketDetails || true
+    // Clean up old direct storage values if they exist
+    if (result.pollInterval !== undefined) {
+      console.log('🧹 Cleaning up old direct settings from storage in getSettings');
+      await chrome.storage.sync.remove(['pollInterval', 'disableAlarm', 'disablePolling', 'alertCondition', 'volume', 'playbackDuration', 'loopAudio', 'enableDesktop', 'enableSound', 'quietHours', 'quietStart', 'quietEnd', 'showTicketDetails']);
+      // Reload after cleanup
+      const cleanResult = await chrome.storage.sync.get(['settings']);
+      return cleanResult.settings || {
+        pollInterval: 5,
+        disableAlarm: false,
+        disablePolling: false,
+        alertCondition: 'nonZeroCount',
+        volume: 70,
+        playbackDuration: 5,
+        loopAudio: false,
+        enableDesktop: true,
+        enableSound: true,
+        quietHours: false,
+        quietStart: '22:00',
+        quietEnd: '08:00',
+        showTicketDetails: true
+      };
+    }
+    
+    const settings = result.settings || {
+      pollInterval: 5,
+      disableAlarm: false,
+      disablePolling: false,
+      alertCondition: 'nonZeroCount',
+      volume: 70,
+      playbackDuration: 5,
+      loopAudio: false,
+      enableDesktop: true,
+      enableSound: true,
+      quietHours: false,
+      quietStart: '22:00',
+      quietEnd: '08:00',
+      showTicketDetails: true
     };
     
     console.log('✅ Settings loaded:', settings);
@@ -446,17 +466,23 @@ async function pollQueues() {
     console.log('⏰ Poll time:', new Date().toISOString());
     
     const localResult = await chrome.storage.local.get(['queues', 'previousCounts', 'oldTicketList', 'newTicketList']);
-    const syncResult = await chrome.storage.sync.get(['settings', 'disableAlarm', 'disablePolling', 'alertCondition', 'volume', 'playbackDuration', 'loopAudio', 'pollInterval']);
+    const syncResult = await chrome.storage.sync.get(['settings']); // Only get settings object
     
     let queues = localResult.queues || [];
     // Settings are stored under 'settings' key by the hook
     const settings = syncResult.settings || {};
     const previousCounts = localResult.previousCounts || {};
     const oldTicketList = localResult.oldTicketList || [];
-    const pollInterval = settings.pollInterval || 5;
+    const pollInterval = settings.pollInterval || 5; // Use settings.pollInterval
     
     console.log('📋 Sync result from storage:', syncResult);
     console.log('⚙️ Extracted settings:', settings);
+    
+    // Clean up old direct storage values if they exist
+    if (syncResult.pollInterval !== undefined) {
+      console.log('🧹 Cleaning up old direct pollInterval from storage');
+      await chrome.storage.sync.remove(['pollInterval', 'disableAlarm', 'disablePolling', 'alertCondition', 'volume', 'playbackDuration', 'loopAudio']);
+    }
     
     console.log('Current queues:', queues.length);
     console.log('Previous counts:', previousCounts);
@@ -486,6 +512,7 @@ async function pollQueues() {
     
     console.log('Last poll:', lastPollAt);
     console.log('Next poll:', nextPollAt);
+    console.log(`⏰ Timer updated: Next poll in ${pollInterval} minutes`);
     
     for (const queue of queues) {
       console.log(`\n🔍 Processing queue: ${queue.name}`);
@@ -541,6 +568,7 @@ async function pollQueues() {
     console.log(`❌ Failed polls: ${queues.length - Object.keys(newCounts).length}`);
     
     // Update ticket lists for next comparison (like old extension)
+    console.log('💾 Saving poll results to storage...');
     await chrome.storage.local.set({ 
       previousCounts: newCounts,
       queues: queues,
@@ -549,6 +577,7 @@ async function pollQueues() {
       oldTicketList: [...newTicketList], // Move current list to old for next cycle
       newTicketList: newTicketList
     });
+    console.log('✅ Poll results saved, timer updated for next cycle');
     
     updateBadge(queues, newCounts);
     console.log('=== POLLING COMPLETE ===');
@@ -558,6 +587,7 @@ async function pollQueues() {
     const totalCount = Object.values(newCounts).reduce((sum, count) => sum + count, 0);
     console.log('Total ticket count:', totalCount);
     console.log('Previous total count:', Object.values(previousCounts).reduce((sum, count) => sum + count, 0));
+    console.log(`🔄 Polling cycle completed. Next poll in ${pollInterval} minutes at ${nextPollAt}`);
   } catch (error) {
     console.error('❌ Error polling queues:', error);
   }
