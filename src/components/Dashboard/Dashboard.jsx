@@ -23,11 +23,18 @@ const Dashboard = () => {
 
   useEffect(() => {
     loadRealtimeData();
-    // Update every 5 seconds instead of every second to prevent blinking
-    const interval = setInterval(() => {
-      loadRealtimeData();
-      updateNextPollIn();
-    }, 5000);
+    
+    // Only run timer if monitoring is active
+    let interval;
+    if (isMonitoring) {
+      interval = setInterval(() => {
+        loadRealtimeData();
+        updateNextPollIn();
+      }, 5000);
+      console.log('⏰ Dashboard timer started (monitoring active)');
+    } else {
+      console.log('⏸️ Dashboard timer stopped (monitoring inactive)');
+    }
     
     // Set up storage listener for dynamic updates
     const handleStorageChange = (changes, areaName) => {
@@ -56,12 +63,12 @@ const Dashboard = () => {
     chrome.storage.onChanged.addListener(handleStorageChange);
     
     return () => {
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
       if (chrome.storage.onChanged.hasListener(handleStorageChange)) {
         chrome.storage.onChanged.removeListener(handleStorageChange);
       }
     };
-  }, []);
+  }, [isMonitoring]);
 
   const updateNextPollIn = () => {
     if (nextPollAt) {
@@ -99,29 +106,30 @@ const Dashboard = () => {
       ]);
       
       // Read pollInterval from sync storage (settings)
-      const syncResult = await chrome.storage.sync.get(['pollInterval']);
+      const syncResult = await chrome.storage.sync.get(['settings']);
+      const settings = syncResult.settings || {};
       
       console.log('📊 Dashboard loading data:', {
         isMonitoring: localResult.isMonitoring,
         queuesCount: localResult.queues?.length || 0,
         lastPollAt: localResult.lastPollAt,
         nextPollAt: localResult.nextPollAt,
-        pollInterval: syncResult.pollInterval || 5
+        pollInterval: settings.pollInterval || 5
       });
       
       console.log('Storage data:', {
         isMonitoring: localResult.isMonitoring,
         lastPollAt: localResult.lastPollAt,
         nextPollAt: localResult.nextPollAt,
-        pollInterval: syncResult.pollInterval || 5,
+        pollInterval: settings.pollInterval || 5,
         queuesCount: localResult.queues?.length || 0
       });
       
+      setIsMonitoring(localResult.isMonitoring || false);
       setQueues(localResult.queues || []);
       setLastPollAt(localResult.lastPollAt);
       setNextPollAt(localResult.nextPollAt);
-      setIsMonitoring(localResult.isMonitoring || false);
-      setPollInterval(syncResult.pollInterval || 5);
+      setPollInterval(settings.pollInterval || 5);
       
       // Update system status based on monitoring state
       if (localResult.isMonitoring) {

@@ -74,23 +74,30 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
   console.log('🔄 Storage changed:', areaName, changes);
   
   if (areaName === 'sync') {
-    // Check if individual settings changed
+    // Check if settings object changed
     const settingsChanged = [];
     
-    if (changes.pollInterval) {
-      settingsChanged.push(`pollInterval: ${changes.pollInterval.oldValue} → ${changes.pollInterval.newValue}`);
-    }
-    if (changes.disablePolling) {
-      settingsChanged.push(`disablePolling: ${changes.disablePolling.oldValue} → ${changes.disablePolling.newValue}`);
-    }
-    if (changes.disableAlarm) {
-      settingsChanged.push(`disableAlarm: ${changes.disableAlarm.oldValue} → ${changes.disableAlarm.newValue}`);
-    }
-    if (changes.alertCondition) {
-      settingsChanged.push(`alertCondition: ${changes.alertCondition.oldValue} → ${changes.alertCondition.newValue}`);
-    }
-    if (changes.badgeDisplay) {
-      settingsChanged.push(`badgeDisplay: ${changes.badgeDisplay.oldValue} → ${changes.badgeDisplay.newValue}`);
+    if (changes.settings) {
+      const settings = changes.settings;
+      console.log('🔄 Settings object changed:', settings);
+      
+      if (settings.newValue) {
+        if (settings.oldValue?.pollInterval !== settings.newValue?.pollInterval) {
+          settingsChanged.push(`pollInterval: ${settings.oldValue?.pollInterval} → ${settings.newValue?.pollInterval}`);
+        }
+        if (settings.oldValue?.disablePolling !== settings.newValue?.disablePolling) {
+          settingsChanged.push(`disablePolling: ${settings.oldValue?.disablePolling} → ${settings.newValue?.disablePolling}`);
+        }
+        if (settings.oldValue?.disableAlarm !== settings.newValue?.disableAlarm) {
+          settingsChanged.push(`disableAlarm: ${settings.oldValue?.disableAlarm} → ${settings.newValue?.disableAlarm}`);
+        }
+        if (settings.oldValue?.alertCondition !== settings.newValue?.alertCondition) {
+          settingsChanged.push(`alertCondition: ${settings.oldValue?.alertCondition} → ${settings.newValue?.alertCondition}`);
+        }
+        if (settings.oldValue?.badgeDisplay !== settings.newValue?.badgeDisplay) {
+          settingsChanged.push(`badgeDisplay: ${settings.oldValue?.badgeDisplay} → ${settings.newValue?.badgeDisplay}`);
+        }
+      }
     }
     
     if (settingsChanged.length > 0) {
@@ -101,45 +108,69 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
       const isMonitoring = monitoringStatus.isMonitoring || false;
       
       // Handle pollInterval change
-      if (changes.pollInterval && changes.pollInterval.oldValue !== changes.pollInterval.newValue) {
-        console.log(`⏱️ Poll interval changed: ${changes.pollInterval.oldValue} → ${changes.pollInterval.newValue} minutes`);
-        console.log(`📊 Current monitoring status: ${isMonitoring}`);
-        if (isMonitoring) {
-          console.log('🔄 Restarting monitoring with new poll interval');
-          await stopMonitoring();
-          await startMonitoring();
-          console.log('✅ Monitoring restarted with new interval');
-        } else {
-          console.log('📝 Poll interval updated, will apply when monitoring starts');
-        }
-      }
-      
-      // Handle disablePolling change
-      if (changes.disablePolling && changes.disablePolling.oldValue !== changes.disablePolling.newValue) {
-        const newDisablePolling = changes.disablePolling.newValue;
-        console.log(`🔄 Disable polling changed to: ${newDisablePolling}`);
+      if (changes.settings && changes.settings.newValue) {
+        const oldInterval = changes.settings.oldValue?.pollInterval;
+        const newInterval = changes.settings.newValue?.pollInterval;
         
-        if (newDisablePolling) {
-          console.log('⏸️ Polling disabled, stopping monitoring');
-          await stopMonitoring();
-        } else {
-          console.log('▶️ Polling enabled, checking if should start monitoring');
-          const queues = await chrome.storage.local.get(['queues']);
-          if (queues.queues && queues.queues.length > 0 && !isMonitoring) {
+        if (oldInterval !== newInterval && oldInterval !== undefined && newInterval !== undefined) {
+          console.log(`⏱️ Poll interval changed: ${oldInterval} → ${newInterval} minutes`);
+          console.log(`📊 Current monitoring status: ${isMonitoring}`);
+          if (isMonitoring) {
+            console.log('🔄 Restarting monitoring with new poll interval');
+            await stopMonitoring();
             await startMonitoring();
+            console.log('✅ Monitoring restarted with new interval');
+          } else {
+            console.log('📝 Poll interval updated, will apply when monitoring starts');
           }
         }
       }
       
+      // Handle disablePolling change
+      if (changes.settings && changes.settings.newValue) {
+        const oldDisablePolling = changes.settings.oldValue?.disablePolling;
+        const newDisablePolling = changes.settings.newValue?.disablePolling;
+        
+        if (oldDisablePolling !== newDisablePolling && oldDisablePolling !== undefined && newDisablePolling !== undefined) {
+          console.log(`🔄 Disable polling changed: ${oldDisablePolling} → ${newDisablePolling}`);
+          
+          if (newDisablePolling) {
+            console.log('⏸️ Polling disabled, stopping monitoring');
+            await stopMonitoring();
+          } else {
+            console.log('▶️ Polling enabled, starting monitoring if queues exist');
+            const queues = await chrome.storage.local.get(['queues']);
+            if (queues.queues && queues.queues.length > 0 && !isMonitoring) {
+              await startMonitoring();
+            }
+          }
+        }
+      }
+      
+      // Handle disableAlarm change
+      if (changes.settings && changes.settings.newValue) {
+        const oldDisableAlarm = changes.settings.oldValue?.disableAlarm;
+        const newDisableAlarm = changes.settings.newValue?.disableAlarm;
+        
+        if (oldDisableAlarm !== newDisableAlarm && oldDisableAlarm !== undefined && newDisableAlarm !== undefined) {
+          console.log(`🔄 Disable alarm changed: ${oldDisableAlarm} → ${newDisableAlarm}`);
+        }
+      }
+      
       // Handle badgeDisplay change
-      if (changes.badgeDisplay && changes.badgeDisplay.oldValue !== changes.badgeDisplay.newValue) {
-        console.log(`🔄 Badge display changed to: ${changes.badgeDisplay.newValue}`);
-        if (isMonitoring) {
-          // Update badge immediately with new display setting
-          const localResult = await chrome.storage.local.get(['queues', 'previousCounts']);
-          const queues = localResult.queues || [];
-          const counts = localResult.previousCounts || {};
-          await updateBadge(queues, counts);
+      if (changes.settings && changes.settings.newValue) {
+        const oldBadgeDisplay = changes.settings.oldValue?.badgeDisplay;
+        const newBadgeDisplay = changes.settings.newValue?.badgeDisplay;
+        
+        if (oldBadgeDisplay !== newBadgeDisplay && oldBadgeDisplay !== undefined && newBadgeDisplay !== undefined) {
+          console.log(`🔄 Badge display changed: ${oldBadgeDisplay} → ${newBadgeDisplay}`);
+          if (isMonitoring) {
+            // Update badge immediately with new display setting
+            const localResult = await chrome.storage.local.get(['queues', 'previousCounts']);
+            const queues = localResult.queues || [];
+            const counts = localResult.previousCounts || {};
+            await updateBadge(queues, counts);
+          }
         }
       }
     }
@@ -415,10 +446,11 @@ async function pollQueues() {
     console.log('⏰ Poll time:', new Date().toISOString());
     
     const localResult = await chrome.storage.local.get(['queues', 'previousCounts', 'oldTicketList', 'newTicketList']);
-    const syncResult = await chrome.storage.sync.get(['disableAlarm', 'disablePolling', 'alertCondition', 'volume', 'playbackDuration', 'loopAudio', 'pollInterval']);
+    const syncResult = await chrome.storage.sync.get(['settings', 'disableAlarm', 'disablePolling', 'alertCondition', 'volume', 'playbackDuration', 'loopAudio', 'pollInterval']);
     
     let queues = localResult.queues || [];
-    const settings = syncResult || {}; // Settings are stored directly in sync storage
+    // Settings are stored under 'settings' key by the hook
+    const settings = syncResult.settings || {};
     const previousCounts = localResult.previousCounts || {};
     const oldTicketList = localResult.oldTicketList || [];
     const pollInterval = settings.pollInterval || 5;
@@ -773,6 +805,8 @@ async function handleAlert(queue, result, settings) {
     console.log('🚨 Alert for:', queue.name);
     console.log('📝 Queue notificationText:', queue.notificationText);
     console.log('⚙️ Alert condition:', settings.alertCondition);
+    console.log('🔊 Alarm disabled:', settings.disableAlarm);
+    console.log('⏸️ Polling disabled:', settings.disablePolling);
     
     // Check for recent notification to prevent duplicates
     const now = Date.now();
@@ -790,11 +824,14 @@ async function handleAlert(queue, result, settings) {
     
     // Play audio only if not disabled
     if (!settings.disableAlarm) {
+      console.log('🔊 Playing audio (alarm enabled)');
       await handlePlayAudio({
         loop: settings.loopAudio !== false,
         volume: settings.volume || 70,
         playbackDuration: settings.playbackDuration || 5
       });
+    } else {
+      console.log('🔇 Audio disabled (alarm disabled) - showing notification only');
     }
     
     // Create notification for the queue

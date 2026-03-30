@@ -60,8 +60,9 @@ const Monitoring = () => {
 
   const handleAutoSave = async (newSettings) => {
     try {
+      console.log('💾 Auto-saving monitoring settings:', newSettings);
       await saveSettings(newSettings);
-      console.log('✅ Monitoring settings auto-saved:', newSettings);
+      console.log('✅ Monitoring settings auto-saved successfully');
     } catch (error) {
       console.error('❌ Error auto-saving monitoring settings:', error);
     }

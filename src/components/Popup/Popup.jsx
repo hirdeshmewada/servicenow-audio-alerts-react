@@ -33,7 +33,7 @@ const Popup = () => {
           changes.nextPollAt
         )) ||
         (areaName === 'sync' && (
-          changes.settings ||
+          changes.settings || // Settings are stored under 'settings' key
           changes.pollInterval ||
           changes.disablePolling
         ))
@@ -101,28 +101,26 @@ const Popup = () => {
       ]);
       
       // Read settings from sync storage
-      const syncResult = await chrome.storage.sync.get([
-        'pollInterval', 'disablePolling', 'disableAlarm', 'alertCondition', 'badgeDisplay'
-      ]);
+      const syncResult = await chrome.storage.sync.get(['settings']);
+      const settings = syncResult.settings || {};
       
       console.log('📊 Popup loading data:', {
         isMonitoring: localResult.isMonitoring,
         queuesCount: localResult.queues?.length || 0,
         lastPollAt: localResult.lastPollAt,
         nextPollAt: localResult.nextPollAt,
-        pollInterval: syncResult.pollInterval || 5,
-        disablePolling: syncResult.disablePolling,
-        disableAlarm: syncResult.disableAlarm,
-        alertCondition: syncResult.alertCondition,
-        badgeDisplay: syncResult.badgeDisplay || 'total'
+        pollInterval: settings.pollInterval,
+        badgeDisplay: settings.badgeDisplay
       });
+      console.log('📊 Storage data:', localResult);
+      console.log('⚙️ Settings data:', settings);
       
       setIsMonitoring(localResult.isMonitoring || false);
       setQueues(localResult.queues || []);
       setLastPollAt(localResult.lastPollAt);
       setNextPollAt(localResult.nextPollAt);
-      setPollInterval(syncResult.pollInterval || 5);
-      setBadgeDisplay(syncResult.badgeDisplay || 'total');
+      setPollInterval(settings.pollInterval || 5);
+      setBadgeDisplay(settings.badgeDisplay || 'total');
     } catch (error) {
       console.error('Error loading popup data:', error);
       setIsMonitoring(false);
