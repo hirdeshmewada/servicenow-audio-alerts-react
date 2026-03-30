@@ -1,6 +1,13 @@
 import React from 'react';
 
 const RecentTickets = ({ queues }) => {
+  const handleTicketClick = (ticket, queueUrl) => {
+    // Open the ticket in ServiceNow
+    const ticketUrl = `${queueUrl.split('?')[0]}?sysparm_query=number=${ticket.number}&sysparm_stack=incident`;
+    console.log('🔗 Opening ticket:', ticket.number, ticketUrl);
+    chrome.tabs.create({ url: ticketUrl });
+  };
+
   const getTicketsByQueue = () => {
     const ticketsByQueue = {};
     
@@ -52,12 +59,20 @@ const RecentTickets = ({ queues }) => {
               <div key={queueId} className="queue-section">
                 <div className="queue-header">
                   <h4 className="queue-title">{queueData.queueName}</h4>
-                  <span className="queue-ticket-count">{queueData.tickets.length} tickets</span>
+                  <div className="queue-stats">
+                    <span className="queue-ticket-count">{queueData.tickets.length}</span>
+                    <span className="queue-label">tickets</span>
+                  </div>
                 </div>
                 <div className="queue-tickets">
                   {queueData.tickets.slice(0, 3).map((ticket, index) => (
-                    <div key={index} className="ticket-item">
-                      <div className="ticket-number">{ticket.number}</div>
+                    <div key={index} className="ticket-item clickable-ticket" 
+                         onClick={() => handleTicketClick(ticket, queueData.queueUrl)}
+                         title={`Click to open ticket ${ticket.number} in ServiceNow`}>
+                      <div className="ticket-number">
+                        {ticket.number}
+                        <span className="click-indicator">🔗</span>
+                      </div>
                       <div className="ticket-info">
                         <div className="ticket-description">{ticket.short_description}</div>
                         <div className="ticket-meta">
