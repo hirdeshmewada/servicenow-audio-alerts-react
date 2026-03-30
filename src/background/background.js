@@ -102,11 +102,15 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
       
       // Handle pollInterval change
       if (changes.pollInterval && changes.pollInterval.oldValue !== changes.pollInterval.newValue) {
-        console.log(`⏱️ Poll interval changed, updating monitoring`);
+        console.log(`⏱️ Poll interval changed: ${changes.pollInterval.oldValue} → ${changes.pollInterval.newValue} minutes`);
+        console.log(`📊 Current monitoring status: ${isMonitoring}`);
         if (isMonitoring) {
           console.log('🔄 Restarting monitoring with new poll interval');
           await stopMonitoring();
           await startMonitoring();
+          console.log('✅ Monitoring restarted with new interval');
+        } else {
+          console.log('📝 Poll interval updated, will apply when monitoring starts');
         }
       }
       
@@ -289,7 +293,9 @@ async function handlePlayAudio(settings, audioSource = null) {
 
 // Alarm handler for polling
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  console.log('⏰ Alarm triggered:', alarm.name);
   if (alarm.name === 'queuePoll') {
+    console.log('📡 Queue poll alarm triggered, starting poll...');
     await pollQueues();
   }
 });
@@ -315,10 +321,25 @@ async function startMonitoring() {
     console.log('Poll interval:', pollInterval, 'minutes');
     
     await chrome.alarms.clear('queuePoll');
+    console.log('🗑️ Cleared existing queuePoll alarm');
+    
     await chrome.alarms.create('queuePoll', {
       delayInMinutes: pollInterval, // Wait for full interval before first poll
       periodInMinutes: pollInterval
     });
+    console.log('⏰ Created new queuePoll alarm:');
+    console.log(`  - Delay: ${pollInterval} minutes`);
+    console.log(`  - Period: ${pollInterval} minutes`);
+    console.log(`  - Will trigger at: ${new Date(Date.now() + pollInterval * 60 * 1000).toISOString()}`);
+    
+    // Verify alarm was created
+    const alarms = await chrome.alarms.getAll();
+    const queuePollAlarm = alarms.find(a => a.name === 'queuePoll');
+    if (queuePollAlarm) {
+      console.log('✅ Queue poll alarm created successfully:', queuePollAlarm);
+    } else {
+      console.error('❌ Failed to create queue poll alarm');
+    }
     
     const nextPollAt = new Date(Date.now() + pollInterval * 60 * 1000).toISOString();
     
@@ -339,6 +360,12 @@ async function startMonitoring() {
     
     console.log('Next poll scheduled for:', nextPollAt);
     console.log('=== MONITORING STARTED ===');
+    
+    // For debugging: do a quick test poll after 10 seconds
+    setTimeout(async () => {
+      console.log('🧪 Running quick test poll for debugging...');
+      await pollQueues();
+    }, 10000);
     // Remove immediate poll - let the alarm handle it
   } catch (error) {
     console.error('❌ Error starting monitoring:', error);
@@ -384,15 +411,20 @@ async function getMonitoringStatus() {
 // Poll queues for updates
 async function pollQueues() {
   try {
-    console.log('=== POLLING QUEUES ===');
+    console.log('🚀 === POLLING QUEUES STARTED ===');
+    console.log('⏰ Poll time:', new Date().toISOString());
+    
     const localResult = await chrome.storage.local.get(['queues', 'previousCounts', 'oldTicketList', 'newTicketList']);
     const syncResult = await chrome.storage.sync.get(['disableAlarm', 'disablePolling', 'alertCondition', 'volume', 'playbackDuration', 'loopAudio', 'pollInterval']);
     
     let queues = localResult.queues || [];
-    const settings = syncResult || {};
+    const settings = syncResult || {}; // Settings are stored directly in sync storage
     const previousCounts = localResult.previousCounts || {};
     const oldTicketList = localResult.oldTicketList || [];
     const pollInterval = settings.pollInterval || 5;
+    
+    console.log('📋 Sync result from storage:', syncResult);
+    console.log('⚙️ Extracted settings:', settings);
     
     console.log('Current queues:', queues.length);
     console.log('Previous counts:', previousCounts);
@@ -400,6 +432,15 @@ async function pollQueues() {
     console.log('📋 Settings from sync storage:', syncResult);
     console.log('⚙️ Alert condition in settings:', settings.alertCondition);
     console.log('Settings:', settings);
+    
+    // Debug queue details
+    console.log('📋 Queue details:');
+    queues.forEach((queue, index) => {
+      console.log(`  ${index + 1}. ${queue.name}:`);
+      console.log(`     - Enabled: ${queue.enabled}`);
+      console.log(`     - Has URL: ${!!queue.url}`);
+      console.log(`     - URL: ${queue.url ? queue.url.substring(0, 100) + '...' : 'none'}`);
+    });
     
     if (settings.disablePolling) {
       console.log('⏸️ Polling disabled');
@@ -415,14 +456,20 @@ async function pollQueues() {
     console.log('Next poll:', nextPollAt);
     
     for (const queue of queues) {
+      console.log(`\n🔍 Processing queue: ${queue.name}`);
+      console.log(`   - Enabled: ${queue.enabled}`);
+      console.log(`   - Has URL: ${!!queue.url}`);
+      
       if (!queue.enabled || !queue.url) {
-        console.log(`Skipping queue ${queue.name}: disabled or no URL`);
+        console.log(`⏭️ Skipping queue ${queue.name}: disabled or no URL`);
         continue;
       }
       
+      console.log(`📡 Starting API call for queue: ${queue.name}`);
       try {
         console.log(`Polling queue: ${queue.name}`);
         const result = await fetchQueueData(queue.url);
+        console.log(`✅ API call successful for ${queue.name}`);
         const count = result.quantity;
         newCounts[queue.id] = count;
         
@@ -446,10 +493,20 @@ async function pollQueues() {
         }
       } catch (error) {
         console.error(`❌ Error polling ${queue.name}:`, error);
+        console.error(`   - Error details:`, {
+          message: error.message,
+          stack: error.stack,
+          queueName: queue.name,
+          queueUrl: queue.url ? queue.url.substring(0, 100) + '...' : 'none'
+        });
         queue.currentCount = 0;
         queue.error = error.message;
       }
     }
+    
+    console.log(`\n📊 Processed ${queues.length} queues`);
+    console.log(`✅ Successful polls: ${Object.keys(newCounts).length}`);
+    console.log(`❌ Failed polls: ${queues.length - Object.keys(newCounts).length}`);
     
     // Update ticket lists for next comparison (like old extension)
     await chrome.storage.local.set({ 
@@ -594,8 +651,12 @@ function convertToApiUrl(url) {
 // Fetch queue data from ServiceNow (matches old extension exactly)
 async function fetchQueueData(url) {
   try {
+    console.log('🌐 === FETCH QUEUE DATA START ===');
+    console.log('📋 Input URL:', url);
+    
     // Convert UI URL to API URL if needed
     const apiUrl = convertToApiUrl(url);
+    console.log('🔄 Converted API URL:', apiUrl);
     
     console.log('🔍 Fetching data from:', apiUrl);
     const response = await fetch(apiUrl + (apiUrl.includes('?') ? '&' : '?') + 'sysparm_limit=1000', {
@@ -605,6 +666,9 @@ async function fetchQueueData(url) {
         'Content-Type': 'application/json'
       }
     });
+    
+    console.log('📡 Response status:', response.status);
+    console.log('📡 Response headers:', response.headers.get('content-type'));
     
     // Check if response is HTML (login page or error)
     const contentType = response.headers.get('content-type');
@@ -691,11 +755,10 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
       console.log('=== COUNT > 0 LOGIC ===');
       console.log('Current count:', currentCount);
       console.log('Previous count:', previousCount);
-      console.log('Queue notificationText:', queue?.notificationText);
       
       if (currentCount > 0) {
         console.log('✅ Triggering - count > 0 condition met');
-        console.log('📝 Will use custom title:', queue.notificationText || 'Tickets Available');
+        console.log('📝 Will use custom title from handleAlert function');
         return true;
       } else {
         console.log('❌ No tickets - count is 0');
