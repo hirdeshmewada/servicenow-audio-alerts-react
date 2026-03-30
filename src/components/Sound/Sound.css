@@ -304,6 +304,17 @@
   color: #333;
   margin-bottom: 5px;
   font-size: 14px;
+  word-break: break-all;
+}
+
+.default-badge {
+  background: #10b981;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 8px;
 }
 
 .file-meta {
@@ -333,6 +344,17 @@
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;
+}
+
+.btn-success {
+  background: #10b981;
+  color: white;
+  border: 1px solid #10b981;
+}
+
+.btn-success:hover {
+  background: #059669;
+  border-color: #059669;
 }
 
 .empty-state {

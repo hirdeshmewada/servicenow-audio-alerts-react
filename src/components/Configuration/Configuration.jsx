@@ -5,13 +5,30 @@ import './Configuration.css';
 
 const Configuration = () => {
   const [rootUrl, setRootUrl] = useState('');
-  const [badgeDisplay, setBadgeDisplay] = useState('false');
+  const [badgeDisplay, setBadgeDisplay] = useState('total');
   const [queues, setQueues] = useState([]);
   
   const { getQueues, saveQueues, getSettings, saveSettings } = useChromeStorage();
 
   useEffect(() => {
     loadConfiguration();
+    
+    // Set up storage listener for dynamic updates
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName === 'sync' && changes.settings) {
+        console.log(' Configuration settings changed, updating UI...');
+        loadConfiguration();
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+
+    // Cleanup listener on unmount
+    return () => {
+      if (chrome.storage.onChanged.hasListener(handleStorageChange)) {
+        chrome.storage.onChanged.removeListener(handleStorageChange);
+      }
+    };
   }, []);
 
   const loadConfiguration = async () => {
@@ -20,7 +37,21 @@ const Configuration = () => {
     
     setQueues(savedQueues || []);
     setRootUrl(settings.rootUrl || '');
-    setBadgeDisplay(settings.badgeDisplay || 'false');
+    setBadgeDisplay(settings.badgeDisplay || 'total');
+  };
+
+  const handleAutoSave = async (newSettings) => {
+    try {
+      await saveSettings(newSettings);
+      console.log(' Configuration settings auto-saved:', newSettings);
+    } catch (error) {
+      console.error(' Error auto-saving configuration settings:', error);
+    }
+  };
+
+  const handleBadgeDisplayChange = (value) => {
+    setBadgeDisplay(value);
+    handleAutoSave({ rootUrl, badgeDisplay: value });
   };
 
   const handleSaveConfig = async () => {
@@ -73,11 +104,14 @@ const Configuration = () => {
               id="badgeDisplay" 
               className="form-control"
               value={badgeDisplay}
-              onChange={(e) => setBadgeDisplay(e.target.value)}
+              onChange={(e) => handleBadgeDisplayChange(e.target.value)}
             >
-              <option value="false">Total (A + B)</option>
-              <option value="true">Split (A | B)</option>
+              <option value="total">Total Count (sum of all queues)</option>
+              <option value="split">Individual Counts (A|B|C...)</option>
             </select>
+            <div className="help-text">
+              Choose how queue counts appear on the extension badge
+            </div>
           </div>
         </div>
 

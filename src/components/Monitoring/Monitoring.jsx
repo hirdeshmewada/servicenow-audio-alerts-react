@@ -9,7 +9,11 @@ const Monitoring = () => {
     pollInterval: 5,
     disableAlarm: false,
     disablePolling: false,
-    alertCondition: 'nonZeroCount'
+    alertCondition: 'nonZeroCount',
+    audioSource: 'default',
+    volume: 70,
+    playbackDuration: 5,
+    loopAudio: false
   });
   
   const { getSettings, saveSettings } = useChromeStorage();
@@ -41,7 +45,11 @@ const Monitoring = () => {
       pollInterval: settings.pollInterval || 5,
       disableAlarm: settings.disableAlarm || false,
       disablePolling: settings.disablePolling || false,
-      alertCondition: settings.alertCondition || 'nonZeroCount'
+      alertCondition: settings.alertCondition || 'nonZeroCount',
+      audioSource: settings.audioSource || 'default',
+      volume: settings.volume || 70,
+      playbackDuration: settings.playbackDuration || 5,
+      loopAudio: settings.loopAudio || false
     });
   };
 
@@ -50,14 +58,37 @@ const Monitoring = () => {
     alert('Monitoring settings saved successfully!');
   };
 
+  const handleAutoSave = async (newSettings) => {
+    try {
+      await saveSettings(newSettings);
+      console.log('✅ Monitoring settings auto-saved:', newSettings);
+    } catch (error) {
+      console.error('❌ Error auto-saving monitoring settings:', error);
+    }
+  };
+
+  const handleSettingChange = (setting, value) => {
+    const newSettings = { ...monitoringSettings, [setting]: value };
+    setMonitoringSettings(newSettings);
+    handleAutoSave(newSettings);
+  };
+
   const handleTestAudio = () => {
     console.log('🔊 Testing audio notification');
+    console.log('📊 Current audio source:', monitoringSettings.audioSource);
+    console.log('🔊 Audio settings:', {
+      audioSource: monitoringSettings.audioSource,
+      volume: monitoringSettings.volume,
+      playbackDuration: monitoringSettings.playbackDuration
+    });
+    
     // Fire and forget - like old extension
     chrome.runtime.sendMessage({
       type: 'PLAY_AUDIO',
+      audioSource: monitoringSettings.audioSource || 'default',
       settings: {
-        volume: 70,
-        playbackDuration: 5,
+        volume: monitoringSettings.volume || 70,
+        playbackDuration: monitoringSettings.playbackDuration || 5,
         loopAudio: false
       }
     });
@@ -102,7 +133,7 @@ const Monitoring = () => {
                 <input 
                   type="checkbox"
                   checked={monitoringSettings.disableAlarm}
-                  onChange={(e) => setMonitoringSettings(prev => ({ ...prev, disableAlarm: e.target.checked }))}
+                  onChange={(e) => handleSettingChange('disableAlarm', e.target.checked)}
                 />
                 <span className="toggle-slider"></span>
               </label>
@@ -117,7 +148,7 @@ const Monitoring = () => {
                 <input 
                   type="checkbox"
                   checked={monitoringSettings.disablePolling}
-                  onChange={(e) => setMonitoringSettings(prev => ({ ...prev, disablePolling: e.target.checked }))}
+                  onChange={(e) => handleSettingChange('disablePolling', e.target.checked)}
                 />
                 <span className="toggle-slider"></span>
               </label>
@@ -134,7 +165,7 @@ const Monitoring = () => {
                 name="alertCondition"
                 value="nonZeroCount"
                 checked={monitoringSettings.alertCondition === 'nonZeroCount'}
-                onChange={(e) => setMonitoringSettings(prev => ({ ...prev, alertCondition: e.target.value }))}
+                onChange={(e) => handleSettingChange('alertCondition', e.target.value)}
               />
               <span className="radio-custom"></span>
               Count is {'>'} 0
@@ -145,7 +176,7 @@ const Monitoring = () => {
                 name="alertCondition"
                 value="newTicket"
                 checked={monitoringSettings.alertCondition === 'newTicket'}
-                onChange={(e) => setMonitoringSettings(prev => ({ ...prev, alertCondition: e.target.value }))}
+                onChange={(e) => handleSettingChange('alertCondition', e.target.value)}
               />
               <span className="radio-custom"></span>
               New ticket appears
@@ -164,7 +195,7 @@ const Monitoring = () => {
               min="1" 
               max="60"
               value={monitoringSettings.pollInterval}
-              onChange={(e) => setMonitoringSettings(prev => ({ ...prev, pollInterval: parseInt(e.target.value) }))}
+              onChange={(e) => handleSettingChange('pollInterval', parseInt(e.target.value) || 5)}
             />
             <div className="help-text">Default is 5 minutes</div>
           </div>

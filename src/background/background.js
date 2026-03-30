@@ -49,6 +49,12 @@ async function getSettings() {
   }
 }
 
+// Global flag to prevent duplicate monitoring starts
+let isStartingMonitoring = false;
+
+// Track last notification time per queue to prevent duplicates
+const lastNotificationTime = new Map();
+
 // Initialize service worker
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === "install") {
@@ -59,6 +65,79 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       console.log('🚀 ServiceNow Audio Alerts installed');
     } catch (error) {
       console.error('❌ Error opening options page:', error);
+    }
+  }
+});
+
+// Listen for storage changes to update polling
+chrome.storage.onChanged.addListener(async (changes, areaName) => {
+  console.log('🔄 Storage changed:', areaName, changes);
+  
+  if (areaName === 'sync') {
+    // Check if individual settings changed
+    const settingsChanged = [];
+    
+    if (changes.pollInterval) {
+      settingsChanged.push(`pollInterval: ${changes.pollInterval.oldValue} → ${changes.pollInterval.newValue}`);
+    }
+    if (changes.disablePolling) {
+      settingsChanged.push(`disablePolling: ${changes.disablePolling.oldValue} → ${changes.disablePolling.newValue}`);
+    }
+    if (changes.disableAlarm) {
+      settingsChanged.push(`disableAlarm: ${changes.disableAlarm.oldValue} → ${changes.disableAlarm.newValue}`);
+    }
+    if (changes.alertCondition) {
+      settingsChanged.push(`alertCondition: ${changes.alertCondition.oldValue} → ${changes.alertCondition.newValue}`);
+    }
+    if (changes.badgeDisplay) {
+      settingsChanged.push(`badgeDisplay: ${changes.badgeDisplay.oldValue} → ${changes.badgeDisplay.newValue}`);
+    }
+    
+    if (settingsChanged.length > 0) {
+      console.log('🔄 Settings changed:', settingsChanged.join(', '));
+      
+      // Get current monitoring status
+      const monitoringStatus = await chrome.storage.local.get(['isMonitoring']);
+      const isMonitoring = monitoringStatus.isMonitoring || false;
+      
+      // Handle pollInterval change
+      if (changes.pollInterval && changes.pollInterval.oldValue !== changes.pollInterval.newValue) {
+        console.log(`⏱️ Poll interval changed, updating monitoring`);
+        if (isMonitoring) {
+          console.log('🔄 Restarting monitoring with new poll interval');
+          await stopMonitoring();
+          await startMonitoring();
+        }
+      }
+      
+      // Handle disablePolling change
+      if (changes.disablePolling && changes.disablePolling.oldValue !== changes.disablePolling.newValue) {
+        const newDisablePolling = changes.disablePolling.newValue;
+        console.log(`🔄 Disable polling changed to: ${newDisablePolling}`);
+        
+        if (newDisablePolling) {
+          console.log('⏸️ Polling disabled, stopping monitoring');
+          await stopMonitoring();
+        } else {
+          console.log('▶️ Polling enabled, checking if should start monitoring');
+          const queues = await chrome.storage.local.get(['queues']);
+          if (queues.queues && queues.queues.length > 0 && !isMonitoring) {
+            await startMonitoring();
+          }
+        }
+      }
+      
+      // Handle badgeDisplay change
+      if (changes.badgeDisplay && changes.badgeDisplay.oldValue !== changes.badgeDisplay.newValue) {
+        console.log(`🔄 Badge display changed to: ${changes.badgeDisplay.newValue}`);
+        if (isMonitoring) {
+          // Update badge immediately with new display setting
+          const localResult = await chrome.storage.local.get(['queues', 'previousCounts']);
+          const queues = localResult.queues || [];
+          const counts = localResult.previousCounts || {};
+          await updateBadge(queues, counts);
+        }
+      }
     }
   }
 });
@@ -84,7 +163,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'testAudio' || message.action === 'testAudio' || message.type === 'PLAY_AUDIO') {
     console.log('🔊 Audio request received');
     
-    handlePlayAudio(message.settings || {})
+    handlePlayAudio(message.settings || {}, message.audioSource)
       .then(() => {
         console.log('✅ Audio played successfully');
         sendResponse({ success: true });
@@ -140,10 +219,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Handle audio playback
-async function handlePlayAudio(settings) {
+async function handlePlayAudio(settings, audioSource = null) {
   try {
     // Get default settings
     const defaultSettings = await getSettings();
+    
+    // Use provided audioSource or default to current setting
+    const currentAudioSource = audioSource || defaultSettings.audioSource || 'default';
     
     // Merge provided settings with defaults
     const finalSettings = {
@@ -154,15 +236,18 @@ async function handlePlayAudio(settings) {
     
     // Get custom audio data if available
     let audioData = null;
-    if (defaultSettings.audioSource === 'custom') {
+    if (currentAudioSource === 'custom') {
       const audioResult = await chrome.storage.local.get(['audioData']);
       if (audioResult.audioData) {
         audioData = audioResult.audioData;
         console.log('🎵 Using custom audio:', audioData.name);
+      } else {
+        console.log('⚠️ Custom audio selected but no file found, falling back to default');
       }
     }
     
     console.log('🔧 Audio settings:', finalSettings);
+    console.log('🎵 Audio source:', currentAudioSource);
     
     // Create offscreen document if it doesn't exist
     const existingContexts = await chrome.runtime.getContexts({
@@ -212,14 +297,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // Start monitoring
 async function startMonitoring() {
   try {
+    // Prevent duplicate starts
+    if (isStartingMonitoring) {
+      console.log('⏸️ Monitoring already starting, ignoring duplicate request');
+      return;
+    }
+    
+    isStartingMonitoring = true;
     console.log('=== STARTING MONITORING ===');
+    
+    // Clear notification tracking to allow fresh notifications
+    lastNotificationTime.clear();
+    console.log('🧹 Cleared notification tracking for fresh start');
+    
     const settings = await getSettings();
     const pollInterval = settings.pollInterval || 5;
     console.log('Poll interval:', pollInterval, 'minutes');
     
     await chrome.alarms.clear('queuePoll');
     await chrome.alarms.create('queuePoll', {
-      delayInMinutes: 0.1,
+      delayInMinutes: pollInterval, // Wait for full interval before first poll
       periodInMinutes: pollInterval
     });
     
@@ -241,11 +338,15 @@ async function startMonitoring() {
     chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
     
     console.log('Next poll scheduled for:', nextPollAt);
-    await pollQueues();
-    
     console.log('=== MONITORING STARTED ===');
+    // Remove immediate poll - let the alarm handle it
   } catch (error) {
     console.error('❌ Error starting monitoring:', error);
+  } finally {
+    // Reset the flag after a short delay to prevent rapid clicks
+    setTimeout(() => {
+      isStartingMonitoring = false;
+    }, 1000);
   }
 }
 
@@ -255,6 +356,9 @@ async function stopMonitoring() {
     console.log('⏸️ Stopping monitoring');
     await chrome.alarms.clear('queuePoll');
     await chrome.storage.local.set({ isMonitoring: false });
+    
+    // Reset the starting flag
+    isStartingMonitoring = false;
     
     // Update badge to show monitoring is stopped
     chrome.action.setBadgeText({ text: 'Off' });
@@ -281,16 +385,21 @@ async function getMonitoringStatus() {
 async function pollQueues() {
   try {
     console.log('=== POLLING QUEUES ===');
-    const result = await chrome.storage.local.get(['queues', 'settings', 'previousCounts', 'oldTicketList', 'newTicketList']);
-    let queues = result.queues || [];
-    const settings = result.settings || {};
-    const previousCounts = result.previousCounts || {};
-    const oldTicketList = result.oldTicketList || [];
+    const localResult = await chrome.storage.local.get(['queues', 'previousCounts', 'oldTicketList', 'newTicketList']);
+    const syncResult = await chrome.storage.sync.get(['disableAlarm', 'disablePolling', 'alertCondition', 'volume', 'playbackDuration', 'loopAudio', 'pollInterval']);
+    
+    let queues = localResult.queues || [];
+    const settings = syncResult || {};
+    const previousCounts = localResult.previousCounts || {};
+    const oldTicketList = localResult.oldTicketList || [];
     const pollInterval = settings.pollInterval || 5;
     
     console.log('Current queues:', queues.length);
     console.log('Previous counts:', previousCounts);
     console.log('Old ticket list length:', oldTicketList.length);
+    console.log('📋 Settings from sync storage:', syncResult);
+    console.log('⚙️ Alert condition in settings:', settings.alertCondition);
+    console.log('Settings:', settings);
     
     if (settings.disablePolling) {
       console.log('⏸️ Polling disabled');
@@ -548,7 +657,7 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
   console.log('New ticket list length:', newTicketList.length);
   
   switch (alertCondition) {
-    case 'alarmOnNewEntry':
+    case 'newTicket':
       // Check for new tickets by comparing lists (like old extension)
       console.log('=== NEW TICKET DETECTION LOGIC ===');
       console.log('Previous list:', oldTicketList);
@@ -579,8 +688,14 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
       
     case 'nonZeroCount':
     default:
+      console.log('=== COUNT > 0 LOGIC ===');
+      console.log('Current count:', currentCount);
+      console.log('Previous count:', previousCount);
+      console.log('Queue notificationText:', queue?.notificationText);
+      
       if (currentCount > 0) {
         console.log('✅ Triggering - count > 0 condition met');
+        console.log('📝 Will use custom title:', queue.notificationText || 'Tickets Available');
         return true;
       } else {
         console.log('❌ No tickets - count is 0');
@@ -593,6 +708,22 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
 async function handleAlert(queue, result, settings) {
   try {
     console.log('🚨 Alert for:', queue.name);
+    console.log('📝 Queue notificationText:', queue.notificationText);
+    console.log('⚙️ Alert condition:', settings.alertCondition);
+    
+    // Check for recent notification to prevent duplicates
+    const now = Date.now();
+    const lastNotification = lastNotificationTime.get(queue.id);
+    const timeSinceLastNotification = lastNotification ? now - lastNotification : Infinity;
+    
+    // If notification was sent in the last 30 seconds, skip it
+    if (timeSinceLastNotification < 30000) {
+      console.log(`⏸️ Skipping duplicate notification for ${queue.name} (last sent ${Math.round(timeSinceLastNotification/1000)}s ago)`);
+      return;
+    }
+    
+    // Update last notification time
+    lastNotificationTime.set(queue.id, now);
     
     // Play audio only if not disabled
     if (!settings.disableAlarm) {
@@ -607,13 +738,27 @@ async function handleAlert(queue, result, settings) {
     const latestTicket = result.records && result.records.length > 0 ? result.records[0] : null;
     
     if (latestTicket) {
+      console.log('🎫 Latest ticket found:', latestTicket.number);
+      console.log('📝 Queue notificationText:', queue.notificationText);
+      
       // Determine notification title based on alert condition
       let customTitle;
       if (settings.alertCondition === 'nonZeroCount') {
         customTitle = queue.notificationText || 'Tickets Available';
-      } else if (settings.alertCondition === 'alarmOnNewEntry') {
+        console.log('📝 Using nonZeroCount title:', customTitle);
+      } else if (settings.alertCondition === 'newTicket') {
         customTitle = queue.notificationText || 'New tickets in Queue';
+        console.log('📝 Using newTicket title:', customTitle);
       }
+      
+      console.log('📢 Sending notification with title:', customTitle);
+      console.log('📢 Notification details:', {
+        ticketNumber: latestTicket.number,
+        ticketDescription: latestTicket.short_description,
+        severity: latestTicket.severity,
+        customTitle: customTitle,
+        queueUrl: queue.url
+      });
       
       await showNotification(
         latestTicket.number,
@@ -622,6 +767,9 @@ async function handleAlert(queue, result, settings) {
         customTitle,
         queue.url
       );
+      console.log('✅ Notification sent');
+    } else {
+      console.log('⚠️ No latest ticket found for notification');
     }
   } catch (error) {
     console.error('❌ Error handling alert:', error);
@@ -672,21 +820,48 @@ async function showNotification(ticketNumber, ticketDescription, severity, custo
 // Update extension badge
 async function updateBadge(queues, counts) {
   try {
-    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+    // Get monitoring status and badge display setting
+    const localResult = await chrome.storage.local.get(['isMonitoring']);
+    const syncResult = await chrome.storage.sync.get(['badgeDisplay']);
     
-    // Get monitoring status
-    const result = await chrome.storage.local.get(['isMonitoring']);
-    const isMonitoring = result.isMonitoring || false;
+    const isMonitoring = localResult.isMonitoring || false;
+    const badgeDisplay = syncResult.badgeDisplay || 'total';
     
     if (!isMonitoring) {
       chrome.action.setBadgeText({ text: 'Off' });
       chrome.action.setBadgeBackgroundColor({ color: '#999999' });
-    } else if (total === 0) {
-      chrome.action.setBadgeText({ text: '0' });
-      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
     } else {
-      chrome.action.setBadgeText({ text: total.toString() });
-      chrome.action.setBadgeBackgroundColor({ color: '#FF6B6B' });
+      const enabledQueues = queues.filter(q => q.enabled);
+      const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+      
+      if (total === 0) {
+        chrome.action.setBadgeText({ text: '0' });
+        chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+      } else {
+        let badgeText;
+        
+        if (badgeDisplay === 'split' && enabledQueues.length > 1) {
+          // Split display: show individual counts separated by |
+          const queueCounts = enabledQueues.map(queue => {
+            const count = counts[queue.id] || 0;
+            return count.toString();
+          });
+          badgeText = queueCounts.join('|');
+        } else {
+          // Total display: show sum of all counts
+          badgeText = total.toString();
+        }
+        
+        // Truncate if too long (Chrome badge has limited space)
+        if (badgeText.length > 4) {
+          badgeText = total.toString();
+        }
+        
+        chrome.action.setBadgeText({ text: badgeText });
+        chrome.action.setBadgeBackgroundColor({ color: '#FF6B6B' });
+        
+        console.log(`📊 Badge updated: ${badgeText} (display: ${badgeDisplay})`);
+      }
     }
   } catch (error) {
     console.error('❌ Error updating badge:', error);

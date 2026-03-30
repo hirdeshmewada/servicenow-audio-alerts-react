@@ -85,6 +85,7 @@ const Sound = () => {
     // Fire and forget - like old extension
     chrome.runtime.sendMessage({
       type: 'PLAY_AUDIO',
+      audioSource: audioSettings.audioSource,
       settings: {
         volume: audioSettings.volume,
         playbackDuration: audioSettings.playbackDuration,
@@ -106,6 +107,21 @@ const Sound = () => {
     // Clear uploaded audio from storage
     chrome.storage.local.remove(['audioData']);
     console.log('🗑️ Custom audio removed and settings reset');
+  };
+
+  const handleSetAsDefault = async () => {
+    try {
+      // Save custom audio as the default preference
+      await chrome.storage.sync.set({ audioSource: 'custom' });
+      const newSettings = { ...audioSettings, audioSource: 'custom' };
+      setAudioSettings(newSettings);
+      await handleAutoSave(newSettings);
+      console.log('✅ Custom audio set as default');
+      alert('✅ Custom audio set as default!');
+    } catch (error) {
+      console.error('❌ Error setting custom audio as default:', error);
+      alert('❌ Failed to set custom audio as default');
+    }
   };
 
   const handleClearCustomAudio = async () => {
@@ -228,7 +244,11 @@ const Sound = () => {
             <select 
               className="form-control"
               value={audioSettings.audioSource}
-              onChange={(e) => setAudioSettings(prev => ({ ...prev, audioSource: e.target.value }))}
+              onChange={(e) => {
+                const newSettings = { ...audioSettings, audioSource: e.target.value };
+                setAudioSettings(newSettings);
+                handleAutoSave(newSettings);
+              }}
             >
               <option value="default">Default Alarm Sound</option>
               <option value="custom">Custom Audio File</option>
@@ -288,6 +308,9 @@ const Sound = () => {
                         <div className="file-meta">
                           <span className="file-size">{(uploadedFile.size / 1024).toFixed(1)} KB</span>
                           <span className="file-type">{uploadedFile.type}</span>
+                          {audioSettings.audioSource === 'custom' && (
+                            <span className="default-badge">Default</span>
+                          )}
                         </div>
                         <div className="file-date">
                           Uploaded: {new Date(uploadedFile.loadedAt).toLocaleString()}
@@ -297,7 +320,12 @@ const Sound = () => {
                         <button className="btn btn-primary btn-sm" onClick={handleTestAudio}>
                           🔊 Test
                         </button>
-                        <button className="btn btn-danger btn-sm" onClick={handleReset}>
+                        {audioSettings.audioSource !== 'custom' && (
+                          <button className="btn btn-success btn-sm" onClick={handleSetAsDefault}>
+                            ⭐ Set Default
+                          </button>
+                        )}
+                        <button className="btn btn-danger btn-sm" onClick={handleClearCustomAudio}>
                           🗑️ Remove
                         </button>
                       </div>

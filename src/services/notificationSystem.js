@@ -54,6 +54,9 @@ async function createNotificationWithDelay(notificationData) {
   // Use custom title if provided, otherwise use ticket number only (not priority)
   const notificationTitle = customTitle || ticketNumber;
   console.log('📝 Notification title:', notificationTitle);
+  console.log('📝 Custom title received:', customTitle);
+  console.log('📝 Using custom title:', !!customTitle);
+  console.log('📝 Using fallback to ticket number:', !customTitle);
   
   // Determine icon based on priority/severity - MATCH OLD EXTENSION
   let iconUrl;
@@ -192,6 +195,12 @@ export function showNotification(ticketNumber, ticketDescription, severity, cust
     customTitle: customTitle,
     queueUrl: queueUrl ? queueUrl.substring(0, 100) + '...' : 'none'
   });
+  
+  // Use custom title if provided, otherwise use ticket number only (not priority)
+  const notificationTitle = customTitle || ticketNumber;
+  console.log('📝 Final notification title:', notificationTitle);
+  console.log('📝 Custom title provided:', !!customTitle);
+  console.log('📝 Fallback to ticket number:', !customTitle);
   
   chrome.storage.local.get(['settings'], (result) => {
     const settings = result.settings || {};

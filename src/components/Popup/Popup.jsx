@@ -10,6 +10,7 @@ const Popup = () => {
   const [nextPollIn, setNextPollIn] = useState('--:--');
   const [progress, setProgress] = useState(0);
   const [pollInterval, setPollInterval] = useState(5);
+  const [badgeDisplay, setBadgeDisplay] = useState('total');
 
   useEffect(() => {
     loadData();
@@ -23,7 +24,7 @@ const Popup = () => {
     const handleStorageChange = (changes, areaName) => {
       console.log('🔄 Storage changed:', areaName, changes);
       
-      // Reload data for any relevant changes
+      // Always reload data for any relevant changes
       const shouldReload = (
         (areaName === 'local' && (
           changes.isMonitoring || 
@@ -32,8 +33,9 @@ const Popup = () => {
           changes.nextPollAt
         )) ||
         (areaName === 'sync' && (
-          changes.settings || 
-          changes.pollInterval
+          changes.settings ||
+          changes.pollInterval ||
+          changes.disablePolling
         ))
       );
       
@@ -98,15 +100,21 @@ const Popup = () => {
         'nextPollAt'
       ]);
       
-      // Read pollInterval from sync storage (settings)
-      const syncResult = await chrome.storage.sync.get(['pollInterval']);
+      // Read settings from sync storage
+      const syncResult = await chrome.storage.sync.get([
+        'pollInterval', 'disablePolling', 'disableAlarm', 'alertCondition', 'badgeDisplay'
+      ]);
       
       console.log('📊 Popup loading data:', {
         isMonitoring: localResult.isMonitoring,
         queuesCount: localResult.queues?.length || 0,
         lastPollAt: localResult.lastPollAt,
         nextPollAt: localResult.nextPollAt,
-        pollInterval: syncResult.pollInterval || 5
+        pollInterval: syncResult.pollInterval || 5,
+        disablePolling: syncResult.disablePolling,
+        disableAlarm: syncResult.disableAlarm,
+        alertCondition: syncResult.alertCondition,
+        badgeDisplay: syncResult.badgeDisplay || 'total'
       });
       
       setIsMonitoring(localResult.isMonitoring || false);
@@ -114,6 +122,7 @@ const Popup = () => {
       setLastPollAt(localResult.lastPollAt);
       setNextPollAt(localResult.nextPollAt);
       setPollInterval(syncResult.pollInterval || 5);
+      setBadgeDisplay(syncResult.badgeDisplay || 'total');
     } catch (error) {
       console.error('Error loading popup data:', error);
       setIsMonitoring(false);
@@ -234,6 +243,10 @@ const Popup = () => {
             <div className="info-item">
               <span className="label">Poll Interval:</span>
               <span className="value">{pollInterval} min</span>
+            </div>
+            <div className="info-item">
+              <span className="label">Badge Mode:</span>
+              <span className="value">{badgeDisplay === 'split' ? 'Split' : 'Total'}</span>
             </div>
             <div className="info-item">
               <span className="label">Last Poll:</span>

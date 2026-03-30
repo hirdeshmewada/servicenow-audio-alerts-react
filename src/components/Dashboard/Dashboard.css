@@ -241,8 +241,11 @@
 
 .queue-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
 }
 
 .queue-item {
@@ -336,8 +339,92 @@
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
-  background: #f59e0b;
+  background: #10b981;
   color: white;
+}
+
+.queue-count-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #3b82f6;
+  color: white;
+}
+
+.empty-queues {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 20px;
+}
+
+.tickets-by-queue {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tickets-by-queue::-webkit-scrollbar {
+  width: 4px;
+}
+
+.tickets-by-queue::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 2px;
+}
+
+.tickets-by-queue::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 2px;
+}
+
+.queue-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.queue-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0;
+}
+
+.queue-ticket-count {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #10b981;
+  color: white;
+}
+
+.queue-tickets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.more-tickets {
+  text-align: center;
+  padding: 8px;
+  font-size: 12px;
+  color: #6b7280;
+  background: #f3f4f6;
+  border-radius: 4px;
+  border: 1px dashed #d1d5db;
 }
 
 .ticket-list {
@@ -489,7 +576,6 @@
   
   .dashboard-top-row {
     grid-template-columns: 1fr;
-    gap: 12px;
   }
   
   .status-info {
@@ -498,6 +584,20 @@
   
   .queue-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .queue-section {
+    padding: 12px;
+  }
+  
+  .queue-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .tickets-by-queue {
+    max-height: 300px;
   }
   
   .ticket-item {
