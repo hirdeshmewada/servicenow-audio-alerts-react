@@ -1,17 +1,29 @@
 import React from 'react';
 
 const RecentTickets = ({ queues }) => {
+  console.log('📋 RecentTickets received queues:', queues.length);
+  console.log('📋 Queue details:', queues.map(q => ({ 
+    name: q.name, 
+    enabled: q.enabled, 
+    hasRecords: !!q.records, 
+    recordCount: q.records?.length || 0 
+  })));
+  
   const handleTicketClick = (ticket, queueUrl) => {
-    // Open the ticket in ServiceNow
-    const ticketUrl = `${queueUrl.split('?')[0]}?sysparm_query=number=${ticket.number}&sysparm_stack=incident`;
-    console.log('🔗 Opening ticket:', ticket.number, ticketUrl);
+    // Open the ticket in ServiceNow from the correct queue
+    const baseUrl = queueUrl.split('?')[0];
+    const ticketUrl = `${baseUrl}?sysparm_query=number=${ticket.number}&sysparm_stack=incident`;
+    console.log('🔗 Opening ticket:', ticket.number, 'from queue:', queueUrl);
+    console.log('🔗 Full URL:', ticketUrl);
     chrome.tabs.create({ url: ticketUrl });
   };
 
   const getTicketsByQueue = () => {
     const ticketsByQueue = {};
     
+    console.log('🔍 Processing queues for tickets...');
     queues.forEach(queue => {
+      console.log(`📋 Queue: ${queue.name}, enabled: ${queue.enabled}, records: ${queue.records?.length || 0}`);
       if (queue.enabled && queue.records && queue.records.length > 0) {
         ticketsByQueue[queue.id] = {
           queueName: queue.name,
@@ -22,9 +34,11 @@ const RecentTickets = ({ queues }) => {
             queueId: queue.id
           }))
         };
+        console.log(`✅ Added ${queue.records.length} tickets from ${queue.name}`);
       }
     });
     
+    console.log('📊 Final ticketsByQueue:', Object.keys(ticketsByQueue).length, 'queues with tickets');
     return ticketsByQueue;
   };
 

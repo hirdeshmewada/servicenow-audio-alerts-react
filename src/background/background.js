@@ -546,9 +546,10 @@ async function pollQueues() {
         const previousCount = previousCounts[queue.id] || 0;
         
         // Check alert condition with proper logic (like old extension)
-        if (shouldAlert(count, previousCount, settings.alertCondition, oldTicketList, newTicketList)) {
+        const alertResult = shouldAlert(count, previousCount, settings.alertCondition, oldTicketList, newTicketList);
+        if (alertResult.shouldAlert) {
           console.log(`🚨 Alert triggered for ${queue.name}: ${previousCount} -> ${count}`);
-          await handleAlert(queue, result, settings);
+          await handleAlert(queue, result, settings, alertResult.newTickets);
         }
       } catch (error) {
         console.error(`❌ Error polling ${queue.name}:`, error);
@@ -784,13 +785,6 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
   
   switch (alertCondition) {
     case 'newTicket':
-      // Check for new tickets by comparing lists (like old extension)
-      console.log('=== NEW TICKET DETECTION LOGIC ===');
-      console.log('Previous list:', oldTicketList);
-      console.log('New list:', newTicketList);
-      console.log('Previous list length:', oldTicketList.length);
-      console.log('New list length:', newTicketList.length);
-      
       // Find tickets that are in new list but not in old list
       const difference = newTicketList.filter(x => !oldTicketList.includes(x));
       console.log('New tickets detected (difference):', difference);
@@ -800,16 +794,16 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
       // 2. There are actual new tickets (difference > 0)
       if (oldTicketList.length === 0) {
         console.log('🔄 First run - treating all tickets as existing');
-        return false;
+        return { shouldAlert: false, newTickets: [] };
       }
       
       if (difference.length > 0) {
         console.log('✅ Triggering - new tickets condition met');
         console.log('New tickets:', difference);
-        return true;
+        return { shouldAlert: true, newTickets: difference };
       } else {
         console.log('❌ No new tickets detected');
-        return false;
+        return { shouldAlert: false, newTickets: [] };
       }
       
     case 'nonZeroCount':
@@ -821,22 +815,23 @@ function shouldAlert(currentCount, previousCount, alertCondition, oldTicketList 
       if (currentCount > 0) {
         console.log('✅ Triggering - count > 0 condition met');
         console.log('📝 Will use custom title from handleAlert function');
-        return true;
+        return { shouldAlert: true, newTickets: [] };
       } else {
         console.log('❌ No tickets - count is 0');
-        return false;
+        return { shouldAlert: false, newTickets: [] };
       }
   }
 }
 
 // Handle alert for queue
-async function handleAlert(queue, result, settings) {
+async function handleAlert(queue, result, settings, newTickets = []) {
   try {
     console.log('🚨 Alert for:', queue.name);
     console.log('📝 Queue notificationText:', queue.notificationText);
     console.log('⚙️ Alert condition:', settings.alertCondition);
     console.log('🔊 Alarm disabled:', settings.disableAlarm);
     console.log('⏸️ Polling disabled:', settings.disablePolling);
+    console.log('🎫 New tickets:', newTickets);
     
     // Check for recent notification to prevent duplicates
     const now = Date.now();
@@ -871,13 +866,52 @@ async function handleAlert(queue, result, settings) {
       console.log('🎫 Latest ticket found:', latestTicket.number);
       console.log('📝 Queue notificationText:', queue.notificationText);
       
-      // Determine notification title based on alert condition
+      // Determine notification title and message based on alert condition
       let customTitle;
+      let notificationMessage;
+      const ticketCount = result.records ? result.records.length : 0;
+      
       if (settings.alertCondition === 'nonZeroCount') {
-        customTitle = queue.notificationText || 'Tickets Available';
+        // For count > 0, show the total count if multiple tickets
+        if (ticketCount > 1) {
+          customTitle = queue.notificationText || `${ticketCount} Tickets Available`;
+          if (!queue.notificationText) {
+            customTitle = `${ticketCount} Tickets Available`;
+          } else {
+            customTitle = `${queue.notificationText} (${ticketCount})`;
+          }
+          notificationMessage = `${ticketCount} tickets detected in ${queue.name} queue`;
+        } else {
+          customTitle = queue.notificationText || 'Ticket Available';
+          notificationMessage = latestTicket.short_description || 'New ticket alert';
+        }
         console.log('📝 Using nonZeroCount title:', customTitle);
       } else if (settings.alertCondition === 'newTicket') {
-        customTitle = queue.notificationText || 'New tickets in Queue';
+        // For new ticket, show the new ticket number(s)
+        if (newTickets.length > 0) {
+          if (newTickets.length === 1) {
+            customTitle = queue.notificationText || `New Ticket: ${newTickets[0]}`;
+            if (!queue.notificationText) {
+              customTitle = `New Ticket: ${newTickets[0]}`;
+            } else {
+              customTitle = `${queue.notificationText} - ${newTickets[0]}`;
+            }
+            notificationMessage = latestTicket.short_description || 'New ticket alert';
+          } else {
+            const ticketList = newTickets.slice(0, 3).join(', ');
+            const moreText = newTickets.length > 3 ? ` +${newTickets.length - 3} more` : '';
+            customTitle = queue.notificationText || `New Tickets: ${ticketList}${moreText}`;
+            if (!queue.notificationText) {
+              customTitle = `New Tickets: ${ticketList}${moreText}`;
+            } else {
+              customTitle = `${queue.notificationText} - ${ticketList}${moreText}`;
+            }
+            notificationMessage = `${newTickets.length} new tickets detected in ${queue.name} queue`;
+          }
+        } else {
+          customTitle = queue.notificationText || 'New Ticket';
+          notificationMessage = latestTicket.short_description || 'New ticket alert';
+        }
         console.log('📝 Using newTicket title:', customTitle);
       }
       
@@ -887,12 +921,13 @@ async function handleAlert(queue, result, settings) {
         ticketDescription: latestTicket.short_description,
         severity: latestTicket.severity,
         customTitle: customTitle,
+        notificationMessage: notificationMessage,
         queueUrl: queue.url
       });
       
       await showNotification(
         latestTicket.number,
-        latestTicket.short_description,
+        notificationMessage,
         latestTicket.severity,
         customTitle,
         queue.url
@@ -952,10 +987,13 @@ async function updateBadge(queues, counts) {
   try {
     // Get monitoring status and badge display setting
     const localResult = await chrome.storage.local.get(['isMonitoring']);
-    const syncResult = await chrome.storage.sync.get(['badgeDisplay']);
+    const syncResult = await chrome.storage.sync.get(['settings']);
     
     const isMonitoring = localResult.isMonitoring || false;
-    const badgeDisplay = syncResult.badgeDisplay || 'total';
+    const settings = syncResult.settings || {};
+    const badgeDisplay = settings.badgeDisplay || 'total';
+    
+    console.log('🏷️ Badge update:', { isMonitoring, badgeDisplay, settings });
     
     if (!isMonitoring) {
       chrome.action.setBadgeText({ text: 'Off' });
@@ -970,21 +1008,23 @@ async function updateBadge(queues, counts) {
       } else {
         let badgeText;
         
+        console.log('🏷️ Badge display mode:', badgeDisplay);
+        console.log('🏷️ Enabled queues:', enabledQueues.length);
+        console.log('🏷️ Queue counts:', counts);
+        
         if (badgeDisplay === 'split' && enabledQueues.length > 1) {
           // Split display: show individual counts separated by |
           const queueCounts = enabledQueues.map(queue => {
             const count = counts[queue.id] || 0;
+            console.log(`🏷️ Queue ${queue.name}: ${count}`);
             return count.toString();
           });
           badgeText = queueCounts.join('|');
+          console.log('🏷️ Split badge text:', badgeText);
         } else {
           // Total display: show sum of all counts
           badgeText = total.toString();
-        }
-        
-        // Truncate if too long (Chrome badge has limited space)
-        if (badgeText.length > 4) {
-          badgeText = total.toString();
+          console.log('🏷️ Total badge text:', badgeText);
         }
         
         chrome.action.setBadgeText({ text: badgeText });
