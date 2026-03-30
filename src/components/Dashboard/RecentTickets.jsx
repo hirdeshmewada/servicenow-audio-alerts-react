@@ -58,14 +58,13 @@ const RecentTickets = ({ queues }) => {
             {Object.entries(ticketsByQueue).map(([queueId, queueData]) => (
               <div key={queueId} className="queue-section">
                 <div className="queue-header">
-                  <h4 className="queue-title">{queueData.queueName}</h4>
-                  <div className="queue-stats">
+                  <div className="queue-title-with-count">
                     <span className="queue-ticket-count">{queueData.tickets.length}</span>
-                    <span className="queue-label">tickets</span>
+                    <h4 className="queue-title">{queueData.queueName}</h4>
                   </div>
                 </div>
                 <div className="queue-tickets">
-                  {queueData.tickets.slice(0, 3).map((ticket, index) => (
+                  {queueData.tickets.map((ticket, index) => (
                     <div key={index} className="ticket-item clickable-ticket" 
                          onClick={() => handleTicketClick(ticket, queueData.queueUrl)}
                          title={`Click to open ticket ${ticket.number} in ServiceNow`}>
@@ -88,11 +87,6 @@ const RecentTickets = ({ queues }) => {
                       </div>
                     </div>
                   ))}
-                  {queueData.tickets.length > 3 && (
-                    <div className="more-tickets">
-                      +{queueData.tickets.length - 3} more tickets
-                    </div>
-                  )}
                 </div>
               </div>
             ))}

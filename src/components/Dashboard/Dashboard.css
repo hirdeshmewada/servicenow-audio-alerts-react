@@ -249,14 +249,16 @@
 }
 
 .ticket-item {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
   border: 1px solid #e5e7eb;
   background: #ffffff;
   transition: all 0.2s ease;
+  margin-bottom: 4px;
+  min-height: 40px;
 }
 
 .ticket-item:hover {
@@ -271,13 +273,59 @@
 
 .clickable-ticket:hover {
   background: #f0f9ff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .clickable-ticket:active {
   transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ticket-number {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.click-indicator {
+  font-size: 12px;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.clickable-ticket:hover .click-indicator {
+  opacity: 1;
+}
+
+.ticket-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ticket-description {
+  flex: 1;
+  font-size: 13px;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 200px;
+}
+
+.ticket-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .queue-item {
@@ -420,30 +468,41 @@
 
 .queue-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid #e5e7eb;
 }
 
+.queue-title-with-count {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .queue-title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: #374151;
   margin: 0;
-}
-
-.queue-stats {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .queue-ticket-count {
   font-size: 18px;
   font-weight: 700;
   color: #1f2937;
+  background: #f3f4f6;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: inline-block;
+  min-width: 30px;
+  text-align: center;
+}
+
+.queue-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .queue-label {
