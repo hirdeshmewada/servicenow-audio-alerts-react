@@ -528,11 +528,11 @@ const groupDiagnosticsByFlt = (journalRecords) => {
     // Extract FLT ID
     const fltMatch = note.value.match(/FLT ID:\s*([\w\d]+)/i);
     const fltId = fltMatch ? fltMatch[1] : 'UNKNOWN';
-    
+
     if (!grouped[fltId]) {
       grouped[fltId] = {
         fltId: fltId,
-        timestamp: record.sys_created_on || 0,
+        timestamp: note.sys_created_on || 0,
         diagnostics: [],
         summaries: []
       };
