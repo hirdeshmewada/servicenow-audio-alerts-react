@@ -907,7 +907,7 @@ const buildAcknowledgement = (data) => {
 
   if (serviceLines.length) {
     blocks.push('Service Details:');
-    serviceLines.forEach(function (line) { blocks.push(line); });
+    serviceLines.forEach(function (serviceLine) { blocks.push(serviceLine); });
     blocks.push('');
   }
 
@@ -927,9 +927,9 @@ const buildAcknowledgement = (data) => {
     
     if (protocolType === 'BGP') {
       protocolDetails.push('BGP protocol is ' + protocolState);
-      
+
       if (hasValue(data.protocolData.peerIp)) {
-        const peerInfo = 'The session is established with peer ' + data.protocolData.peerIp;
+        let peerInfo = 'The session is established with peer ' + data.protocolData.peerIp;
         if (hasValue(data.protocolData.uptime)) {
           peerInfo += ' with uptime ' + data.protocolData.uptime;
         }
@@ -939,9 +939,9 @@ const buildAcknowledgement = (data) => {
       protocolDetails.push('Static routing is configured. Reachability validation is based on endpoint connectivity testing.');
     } else {
       protocolDetails.push(protocolType + ' protocol is ' + protocolState);
-      
+
       if (hasValue(data.protocolData.peerIp)) {
-        const peerInfo = 'Peer IP: ' + data.protocolData.peerIp;
+        let peerInfo = 'Peer IP: ' + data.protocolData.peerIp;
         if (hasValue(data.protocolData.uptime)) {
           peerInfo += ' (Uptime: ' + data.protocolData.uptime + ')';
         }
