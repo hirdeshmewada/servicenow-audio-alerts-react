@@ -213,6 +213,7 @@ const cleanRawLog = (logText) => {
   cleaned = cleaned.replace(/^B\s*$/gm, '');
   cleaned = cleaned.replace(/^B:#$/gm, '');
   cleaned = cleaned.replace(/^B:#\s*$/gm, '');
+  cleaned = cleaned.replace(/^:?\w+[-\w]*#\s*$/gm, ''); // Remove router prompts like :hostname# or hostname#
   
   // Remove [/code] tags
   cleaned = cleaned.replace(/\[\/code\]/gi, '');
@@ -228,17 +229,19 @@ const cleanRawLog = (logText) => {
   cleaned = cleaned.replace(/^Static routes between PE and CPE$/gm, '');
   cleaned = cleaned.replace(/^CPE IP :: [\d\.]+$/gm, '');
   cleaned = cleaned.replace(/^CPE IP: [\d\.]+$/gm, '');
+  cleaned = cleaned.replace(/^Unable to ping PE-CPE$/gm, '');
+  cleaned = cleaned.replace(/^CPE IP :: [\d\.]+ .+$/gm, ''); // Remove CPE IP lines with hostname
   
   // Remove duplicate command lines but preserve newlines
   const lines = cleaned.split('\n');
   const uniqueLines = [];
   const seenCommands = new Set();
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
-    // Check if this is a command line (starts with hostname# or hostname>)
-    if (/^[\w\-]+#\s*/.test(trimmed) || /^[\w\-]+>\s*/.test(trimmed)) {
-      const commandKey = trimmed.replace(/^[\w\-]+[>#]\s*/, '').trim();
+    // Check if this is a command line (starts with hostname# or hostname> or :hostname#)
+    if (/^:?[\w\-]+#\s*/.test(trimmed) || /^[\w\-]+>\s*/.test(trimmed)) {
+      const commandKey = trimmed.replace(/^:?[\w\-]+[>#]\s*/, '').trim();
       if (!seenCommands.has(commandKey)) {
         seenCommands.add(commandKey);
         uniqueLines.push(line); // Keep original line with proper spacing
@@ -247,7 +250,7 @@ const cleanRawLog = (logText) => {
       uniqueLines.push(line);
     }
   }
-  
+
   cleaned = uniqueLines.join('\n');
   
   // Remove empty lines at start/end
@@ -368,15 +371,16 @@ const parseBgpLogs = (logText) => {
     // Extract peer IP
     const ipMatch = logText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
     if (ipMatch) result.peerIp = ipMatch[1];
-    
-    // Extract uptime (format: 0298d19h or similar)
-    const uptimeMatch = logText.match(/\b\d+[wdhms]+\b/i);
+
+    // Extract uptime (format: 0298d19h or similar) - must have at least 2 time units
+    const uptimeMatch = logText.match(/\b\d+[wdhms]+\d+[wdhms]+\b/i) ||
+                         logText.match(/\b\d+[wdhms]+\d+[wdhms]+\d+[wdhms]+\b/i);
     if (uptimeMatch) result.uptime = uptimeMatch[0];
-    
+
     // Extract received routes
     const routesMatch = logText.match(/(\d+)\s+\d+\s+\d+\s+/);
     if (routesMatch) result.receivedRoutes = parseInt(routesMatch[1], 10);
-    
+
     // Check for BGP state
     if (logText.toLowerCase().includes('connect')) {
       result.rawState = 'Connect';
@@ -398,13 +402,16 @@ const parseBgpLogs = (logText) => {
   else if (text.includes('show bgp summary') && text.includes('include')) {
     const ipMatch = logText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
     if (ipMatch) result.peerIp = ipMatch[1];
-    
-    const uptimeMatch = logText.match(/\b\d+[wdhms]+\b/i);
+
+    // Extract uptime - look for patterns like 11w5d15h, 0298d19h, etc.
+    // Must have at least 2 time units (w+d+h, d+h, h+m) to avoid matching single digits
+    const uptimeMatch = logText.match(/\b\d+[wdhms]+\d+[wdhms]+\b/i) ||
+                         logText.match(/\b\d+[wdhms]+\d+[wdhms]+\d+[wdhms]+\b/i);
     if (uptimeMatch) result.uptime = uptimeMatch[0];
-    
+
     const routesMatch = logText.match(/\d+\s+\d+\s+(\d+)/);
     if (routesMatch) result.receivedRoutes = parseInt(routesMatch[1], 10);
-    
+
     if (result.receivedRoutes > 0 || result.uptime) {
       result.rawState = 'Established';
       result.state = 'UP';
