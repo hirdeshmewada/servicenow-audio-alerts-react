@@ -142,7 +142,7 @@ const fetchTableRecord = async (origin, table, sysId) => {
 const fetchJournal = async (origin, caseSysId) => {
   const url = origin + '/sys_journal_field.do?sysparm_query=' +
       encodeURIComponent('element_id=' + caseSysId) +
-      '&JSONv2&sysparm_display_value=true&sysparm_limit=1000';
+      '&JSONv2&sysparm_display_value=true&sysparm_limit=5000';
   const data = await fetchJson(url);
   return data.records || [];
 };
