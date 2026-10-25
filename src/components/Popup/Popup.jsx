@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Popup.css';
+import { generateInitialAcknowledgement } from '../../services/acknowledgementService';
 
 const Popup = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -11,6 +12,8 @@ const Popup = () => {
   const [progress, setProgress] = useState(0);
   const [pollInterval, setPollInterval] = useState(5);
   const [badgeDisplay, setBadgeDisplay] = useState('total');
+  const [ackLoading, setAckLoading] = useState(false);
+  const [ackMessage, setAckMessage] = useState('');
 
   useEffect(() => {
     loadData();
@@ -194,6 +197,30 @@ const Popup = () => {
     window.close();
   };
 
+  const handleGenerateAck = async () => {
+    try {
+      setAckLoading(true);
+      setAckMessage('');
+      console.log('🎯 Generating Initial Acknowledgement...');
+      
+      const acknowledgement = await generateInitialAcknowledgement();
+      
+      setAckMessage('✅ Acknowledgement copied to clipboard!');
+      console.log('✅ Acknowledgement generated successfully');
+      
+      // Clear message after 3 seconds
+      setTimeout(() => setAckMessage(''), 3000);
+    } catch (error) {
+      console.error('❌ Error generating acknowledgement:', error);
+      setAckMessage('❌ ' + error.message);
+      
+      // Clear error message after 5 seconds
+      setTimeout(() => setAckMessage(''), 5000);
+    } finally {
+      setAckLoading(false);
+    }
+  };
+
   const getTotalCount = () => {
     return queues.reduce((total, queue) => total + (queue.currentCount || 0), 0);
   };
@@ -233,6 +260,22 @@ const Popup = () => {
       </div>
 
       <div className="popup-content">
+        {/* Acknowledgement Section */}
+        <div className="ack-section">
+          <button 
+            className="ack-btn"
+            onClick={handleGenerateAck}
+            disabled={ackLoading}
+          >
+            {ackLoading ? '⏳ Generating...' : '📝 Generate Initial Acknowledgement'}
+          </button>
+          {ackMessage && (
+            <div className={`ack-message ${ackMessage.startsWith('✅') ? 'success' : 'error'}`}>
+              {ackMessage}
+            </div>
+          )}
+        </div>
+
         <div className="status-section">
           <div className="status-info">
             <div className="info-item">
