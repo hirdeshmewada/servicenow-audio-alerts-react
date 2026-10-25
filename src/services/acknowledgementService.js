@@ -1,5 +1,6 @@
-// Enhanced Initial Acknowledgement Service with FLT Insights Diagnostic Parsing
+// Production-Ready Initial Acknowledgement Service with FLT Insights Diagnostic Parsing
 // Supports Nokia/HPE, Drivenets, Juniper, and Static routing
+// Enhanced decision engine with UNKNOWN state, proper Insights priority, and traffic signals
 
 const SYS_ID_PATTERN = /^[a-f0-9]{32}$/i;
 
@@ -184,7 +185,7 @@ const textFromHtml = (html) => {
   return (doc.body && doc.body.textContent) ? doc.body.textContent : (html || '');
 };
 
-// Enhanced log cleaning - removes HTML, markdown, FLT metadata, duplicates
+// Enhanced log cleaning - removes HTML, markdown, FLT metadata, duplicates, internal messages, vendor artifacts
 const cleanRawLog = (logText) => {
   if (!logText) return '';
   
@@ -208,15 +209,34 @@ const cleanRawLog = (logText) => {
   // Remove "by INSIGHTS" suffix
   cleaned = cleaned.replace(/by\s*INSIGHTS/gi, '');
   
-  // Remove ANSI color codes (from Drivenets)
+  // Remove ANSI color codes (from Drivenets and Linux)
   cleaned = cleaned.replace(/\[\d+m/g, '');
+  cleaned = cleaned.replace(/\[0m/g, '');
+  cleaned = cleaned.replace(/\[91m/g, '');
+  cleaned = cleaned.replace(/\[93m/g, '');
   
   // Remove B: or B prefixes (router prompt artifacts)
   cleaned = cleaned.replace(/^B\s*$/gm, '');
   cleaned = cleaned.replace(/^B:#$/gm, '');
+  cleaned = cleaned.replace(/^B:#\s*$/gm, '');
   
-  // Remove duplicate command lines
-  const lines = cleaned.split('\n').filter(l => l.trim());
+  // Remove [/code] tags
+  cleaned = cleaned.replace(/\[\/code\]/gi, '');
+  
+  // Remove "DRIVENETS CLI Loading" artifacts
+  cleaned = cleaned.replace(/DRIVENETS CLI Loading\.\.\./gi, '');
+  
+  // Remove internal message lines (engineer-facing messages)
+  cleaned = cleaned.replace(/^No Issue On LM\. PE-CPE protocol is UP\. Engineer to verify customer service$/gm, '');
+  cleaned = cleaned.replace(/^PE-CPE ping response is OK, Engineer to verify service with customer$/gm, '');
+  cleaned = cleaned.replace(/^Unable to ping PE-CPE$/gm, '');
+  cleaned = cleaned.replace(/^PE-CPE Protocol is down$/gm, '');
+  cleaned = cleaned.replace(/^Static routes between PE and CPE$/gm, '');
+  cleaned = cleaned.replace(/^CPE IP :: [\d\.]+$/gm, '');
+  cleaned = cleaned.replace(/^CPE IP: [\d\.]+$/gm, '');
+  
+  // Remove duplicate command lines but preserve newlines
+  const lines = cleaned.split('\n');
   const uniqueLines = [];
   const seenCommands = new Set();
   
@@ -227,10 +247,10 @@ const cleanRawLog = (logText) => {
       const commandKey = trimmed.replace(/^[\w\-]+[>#]\s*/, '').trim();
       if (!seenCommands.has(commandKey)) {
         seenCommands.add(commandKey);
-        uniqueLines.push(trimmed);
+        uniqueLines.push(line); // Keep original line with proper spacing
       }
     } else {
-      uniqueLines.push(trimmed);
+      uniqueLines.push(line);
     }
   }
   
@@ -290,55 +310,57 @@ const parseInsightsSummary = (workNoteText) => {
   return summary;
 };
 
-// Determine service status using priority order
-const determineServiceStatus = (insightsSummary, diagnosticMessage, protocolState, pingStatus) => {
-  // Priority 1: Insights Summary
-  if (insightsSummary && insightsSummary.serviceStatus) {
-    return insightsSummary.serviceStatus;
+// Enhanced ping classification with customer-friendly thresholds
+const classifyPingStatus = (packetLoss) => {
+  if (packetLoss === null || packetLoss === undefined) {
+    return 'UNKNOWN';
   }
-  
-  // Priority 2: Diagnostic Update message
-  if (diagnosticMessage) {
-    const msg = diagnosticMessage.toLowerCase();
-    if (msg.includes('protocol is down') || msg.includes('unable to ping') || msg.includes('ping failed')) {
-      return 'DOWN';
-    }
-    if (msg.includes('protocol is up') || msg.includes('no issue on lm') || msg.includes('ping response is ok')) {
-      return 'UP';
-    }
-  }
-  
-  // Priority 3: Protocol state
-  if (protocolState === 'DOWN') {
-    return 'DOWN';
-  }
-  if (protocolState === 'UP') {
-    // Check ping status for final determination
-    if (pingStatus === 'DOWN') {
-      return 'DOWN';
-    }
+  if (packetLoss === 0) {
     return 'UP';
   }
-  
-  // Priority 4: Ping result
-  if (pingStatus === 'DOWN') {
+  if (packetLoss > 0 && packetLoss <= 10) {
+    return 'PARTIALLY_IMPACTED';
+  }
+  if (packetLoss > 10 && packetLoss <= 50) {
+    return 'SEVERELY_IMPACTED';
+  }
+  if (packetLoss > 50 && packetLoss < 100) {
     return 'DOWN';
   }
-  if (pingStatus === 'UP') {
-    return 'UP';
+  if (packetLoss === 100) {
+    return 'DOWN';
   }
-  
-  // Default: assume UP if we can't determine
-  return 'UP';
+  return 'UNKNOWN';
 };
 
-// Parse BGP logs from various vendors
+// Map BGP state to simplified UP/DOWN/UNKNOWN
+const mapBgpState = (rawState) => {
+  if (!rawState) return 'UNKNOWN';
+  
+  const state = rawState.toLowerCase();
+  
+  // UP states
+  if (state.includes('established') || state.includes('up')) {
+    return 'UP';
+  }
+  
+  // DOWN states
+  if (state.includes('connect') || state.includes('idle') || state.includes('active') || 
+      state.includes('opensent') || state.includes('openconfirm')) {
+    return 'DOWN';
+  }
+  
+  return 'UNKNOWN';
+};
+
+// Parse BGP logs from various vendors with state mapping
 const parseBgpLogs = (logText) => {
   const result = {
     protocolType: 'BGP',
     peerIp: '',
     uptime: '',
     state: 'UNKNOWN',
+    rawState: '',
     receivedRoutes: 0,
     rawLog: ''
   };
@@ -362,14 +384,23 @@ const parseBgpLogs = (logText) => {
     if (routesMatch) result.receivedRoutes = parseInt(routesMatch[1], 10);
     
     // Check for BGP state
-    if (logText.toLowerCase().includes('connect') || logText.toLowerCase().includes('idle') || logText.toLowerCase().includes('active')) {
+    if (logText.toLowerCase().includes('connect')) {
+      result.rawState = 'Connect';
+      result.state = 'DOWN';
+    } else if (logText.toLowerCase().includes('idle')) {
+      result.rawState = 'Idle';
+      result.state = 'DOWN';
+    } else if (logText.toLowerCase().includes('active')) {
+      result.rawState = 'Active';
       result.state = 'DOWN';
     } else if (result.receivedRoutes > 0 || result.uptime) {
+      result.rawState = 'Established';
       result.state = 'UP';
     }
   }
   
   // Drivenets format: show bgp summary | include
+  // Format: 14.140.230.230  4      24471     794423     715072    0     0       1 11w5d15h                  3
   else if (text.includes('show bgp summary') && text.includes('include')) {
     const ipMatch = logText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
     if (ipMatch) result.peerIp = ipMatch[1];
@@ -381,6 +412,7 @@ const parseBgpLogs = (logText) => {
     if (routesMatch) result.receivedRoutes = parseInt(routesMatch[1], 10);
     
     if (result.receivedRoutes > 0 || result.uptime) {
+      result.rawState = 'Established';
       result.state = 'UP';
     }
   }
@@ -391,6 +423,7 @@ const parseBgpLogs = (logText) => {
     if (ipMatch) result.peerIp = ipMatch[1];
     
     if (logText.toLowerCase().includes('established')) {
+      result.rawState = 'Established';
       result.state = 'UP';
     }
   }
@@ -450,13 +483,8 @@ const parsePingLogs = (logText) => {
         result.packetLoss = tx > 0 ? ((tx - rx) / tx) * 100 : 100;
       }
       
-      if (result.packetLoss === 0) {
-        result.status = 'UP';
-      } else if (result.packetLoss === 100) {
-        result.status = 'DOWN';
-      } else {
-        result.status = 'DEGRADED';
-      }
+      // Use new classification
+      result.status = classifyPingStatus(result.packetLoss);
     }
     
     if (avgMatch) {
@@ -477,13 +505,8 @@ const parsePingLogs = (logText) => {
       result.averageRtt = avgMatch[1] + 'ms';
     }
     
-    if (result.packetLoss === 0) {
-      result.status = 'UP';
-    } else if (result.packetLoss === 100) {
-      result.status = 'DOWN';
-    } else {
-      result.status = 'DEGRADED';
-    }
+    // Use new classification
+    result.status = classifyPingStatus(result.packetLoss);
   }
   
   // Generic ping failure detection
@@ -496,8 +519,8 @@ const parsePingLogs = (logText) => {
   return result;
 };
 
-// Parse work notes to extract all diagnostic data
-const parseWorkNotes = (journalRecords) => {
+// Group diagnostics by FLT ID to handle duplicates
+const groupDiagnosticsByFlt = (journalRecords) => {
   const notes = (journalRecords || []).filter(record => 
     record.element === 'work_notes' && 
     typeof record.value === 'string' &&
@@ -505,37 +528,88 @@ const parseWorkNotes = (journalRecords) => {
      record.value.includes('Insights: Insights Conclusion'))
   );
   
+  const grouped = {};
+  
+  notes.forEach(note => {
+    // Extract FLT ID
+    const fltMatch = note.value.match(/FLT ID:\s*([\w\d]+)/i);
+    const fltId = fltMatch ? fltMatch[1] : 'UNKNOWN';
+    
+    if (!grouped[fltId]) {
+      grouped[fltId] = {
+        fltId: fltId,
+        timestamp: record.sys_created_on || 0,
+        diagnostics: [],
+        summaries: []
+      };
+    }
+    
+    if (note.value.includes('Insights: Insights Conclusion')) {
+      grouped[fltId].summaries.push(note);
+    } else {
+      grouped[fltId].diagnostics.push(note);
+    }
+  });
+  
+  // Sort by timestamp (newest first)
+  const sortedGroups = Object.values(grouped).sort((a, b) => b.timestamp - a.timestamp);
+  
+  return sortedGroups;
+};
+
+// Parse work notes to extract all diagnostic data
+const parseWorkNotes = (journalRecords) => {
+  const groupedDiagnostics = groupDiagnosticsByFlt(journalRecords);
+  
   console.log('[ACK] Total journal records:', journalRecords.length);
-  console.log('[ACK] Diagnostic entries found:', notes.length);
+  console.log('[ACK] Grouped FLT diagnostics:', groupedDiagnostics.length);
   
   let insightsSummary = null;
   let latestBgpLog = null;
   let latestPingLog = null;
   let latestDiagnosticMessage = '';
   
-  // Process from newest to oldest
-  for (let i = notes.length - 1; i >= 0; i--) {
-    const note = notes[i];
-    const value = note.value;
-    
-    // Parse Insights Summary
-    if (value.includes('Insights: Insights Conclusion') && !insightsSummary) {
-      insightsSummary = parseInsightsSummary(value);
-      console.log('[ACK] Found Insights Summary:', insightsSummary);
+  // Process from newest FLT to oldest
+  for (const group of groupedDiagnostics) {
+    // Process summaries first
+    for (const summaryNote of group.summaries) {
+      if (!insightsSummary) {
+        insightsSummary = parseInsightsSummary(summaryNote.value);
+        console.log('[ACK] Found Insights Summary from FLT:', group.fltId, insightsSummary);
+      }
     }
     
-    // Parse Diagnostic Update
-    if (value.includes('Insights: Diagnostic Update')) {
+    // Process diagnostics
+    for (const diagNote of group.diagnostics) {
+      const value = diagNote.value;
+      
       // Extract message
       const messageMatch = value.match(/Message\s*([\s\S]*?)\s*Logs/i);
       if (messageMatch) {
         latestDiagnosticMessage = messageMatch[1].trim();
       }
       
-      // Extract logs
-      const logsMatch = value.match(/Logs\s*([\s\S]*?)(?:by INSIGHTS|$)/i);
-      if (logsMatch) {
-        const logs = logsMatch[1].trim();
+      // Extract logs - handle both table and plain text formats
+      let logs = '';
+      
+      // Try table format first
+      const logsTableMatch = value.match(/Logs\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i);
+      if (logsTableMatch) {
+        logs = logsTableMatch[1].trim();
+      } else {
+        // Fallback to plain text format
+        const logsMatch = value.match(/Logs\s*([\s\S]*?)(?:by INSIGHTS|$)/i);
+        if (logsMatch) {
+          logs = logsMatch[1].trim();
+        }
+      }
+      
+      if (logs) {
+        // Convert <br> tags to newlines
+        logs = logs.replace(/<br\s*\/?>/gi, '\n');
+        
+        // Decode HTML entities
+        logs = decodeHtml(logs);
         
         // Check if it's BGP or protocol logs
         if (logs.toLowerCase().includes('bgp') || 
@@ -543,7 +617,7 @@ const parseWorkNotes = (journalRecords) => {
             logs.toLowerCase().includes('show bgp')) {
           if (!latestBgpLog) {
             latestBgpLog = logs;
-            console.log('[ACK] Found BGP logs');
+            console.log('[ACK] Found BGP logs from FLT:', group.fltId);
           }
         }
         
@@ -553,7 +627,7 @@ const parseWorkNotes = (journalRecords) => {
             logs.toLowerCase().includes('packet loss')) {
           if (!latestPingLog) {
             latestPingLog = logs;
-            console.log('[ACK] Found Ping logs');
+            console.log('[ACK] Found Ping logs from FLT:', group.fltId);
           }
         }
         
@@ -562,10 +636,15 @@ const parseWorkNotes = (journalRecords) => {
             (logs.toLowerCase().includes('show bgp') && logs.toLowerCase().includes('no bgp'))) {
           if (!latestBgpLog) {
             latestBgpLog = logs; // Store as protocol log
-            console.log('[ACK] Found Static routing logs');
+            console.log('[ACK] Found Static routing logs from FLT:', group.fltId);
           }
         }
       }
+    }
+    
+    // Stop if we have all the data we need
+    if (insightsSummary && latestBgpLog && latestPingLog) {
+      break;
     }
   }
   
@@ -586,25 +665,157 @@ const parseWorkNotes = (journalRecords) => {
     pingData = parsePingLogs(latestPingLog);
   }
   
-  // Determine service status
+  // Enhanced service status determination with proper priority
   const serviceStatus = determineServiceStatus(
     insightsSummary,
     latestDiagnosticMessage,
-    protocolData ? protocolData.state : null,
-    pingData ? pingData.status : null
+    protocolData,
+    pingData
   );
+  
+  // Generate observation text
+  const observationText = generateObservationText(serviceStatus, protocolData, pingData, insightsSummary);
   
   console.log('[ACK] Service Status:', serviceStatus);
   console.log('[ACK] Protocol Data:', protocolData);
   console.log('[ACK] Ping Data:', pingData);
+  console.log('[ACK] Observation Text:', observationText);
   
   return {
     serviceStatus,
+    observationText,
     insightsSummary,
     protocolData,
     pingData,
     diagnosticMessage: latestDiagnosticMessage
   };
+};
+
+// Enhanced service health decision engine with proper priority
+const determineServiceStatus = (insightsSummary, diagnosticMessage, protocolData, pingData) => {
+  const protocolState = protocolData ? protocolData.state : 'UNKNOWN';
+  const protocolType = protocolData ? protocolData.protocolType : null;
+  const packetLoss = pingData ? pingData.packetLoss : null;
+  const pingStatus = classifyPingStatus(packetLoss);
+  const trafficStatus = insightsSummary ? insightsSummary.trafficStatus : null;
+  
+  console.log('[ACK] Service Status Decision - Protocol:', protocolState, 'Ping:', pingStatus, 'Loss:', packetLoss, 'Traffic:', trafficStatus);
+  
+  // Check if we have insufficient data
+  const hasProtocol = protocolData && protocolData.rawLog;
+  const hasPing = pingData && pingData.rawLog;
+  const hasInsights = insightsSummary && (insightsSummary.serviceStatus || insightsSummary.protocolType);
+  
+  if (!hasProtocol && !hasPing && !hasInsights) {
+    console.log('[ACK] Insufficient diagnostic data - marking as UNKNOWN');
+    return 'UNKNOWN';
+  }
+  
+  // Priority 1: Actual diagnostic logs (protocol + ping)
+  if (hasProtocol && hasPing) {
+    // Fully Healthy
+    if (protocolState === 'UP' && pingStatus === 'UP') {
+      // Check traffic if available
+      if (trafficStatus === 'DOWN') {
+        return 'DEGRADED'; // Connectivity OK but no traffic
+      }
+      return 'UP';
+    }
+    
+    // Protocol UP but Packet Loss
+    if (protocolState === 'UP' && (pingStatus === 'PARTIALLY_IMPACTED' || pingStatus === 'SEVERELY_IMPACTED')) {
+      return 'DEGRADED';
+    }
+    
+    // Protocol UP but Ping DOWN
+    if (protocolState === 'UP' && pingStatus === 'DOWN') {
+      return 'DOWN';
+    }
+    
+    // BGP Down but Ping Works
+    if (protocolState === 'DOWN' && pingStatus === 'UP') {
+      return 'DEGRADED';
+    }
+    
+    // Both DOWN
+    if (protocolState === 'DOWN' && pingStatus === 'DOWN') {
+      return 'DOWN';
+    }
+  }
+  
+  // Priority 2: Ping result (if no protocol)
+  if (!hasProtocol && hasPing) {
+    if (pingStatus === 'UP') {
+      return 'UP';
+    }
+    if (pingStatus === 'PARTIALLY_IMPACTED' || pingStatus === 'SEVERELY_IMPACTED') {
+      return 'DEGRADED';
+    }
+    if (pingStatus === 'DOWN') {
+      return 'DOWN';
+    }
+  }
+  
+  // Priority 3: Protocol result (if no ping)
+  if (hasProtocol && !hasPing) {
+    if (protocolState === 'UP') {
+      return 'UP';
+    }
+    if (protocolState === 'DOWN') {
+      return 'DOWN';
+    }
+  }
+  
+  // Priority 4: Insights Summary (with validation)
+  if (hasInsights && insightsSummary.serviceStatus) {
+    const insightsStatus = insightsSummary.serviceStatus;
+    
+    // Validate against actual diagnostics if available
+    if (hasPing && insightsStatus === 'UP' && (pingStatus === 'SEVERELY_IMPACTED' || pingStatus === 'DOWN')) {
+      return 'DEGRADED';
+    }
+    
+    if (hasProtocol && insightsStatus === 'DOWN' && protocolState === 'UP' && pingStatus === 'UP') {
+      return 'DEGRADED';
+    }
+    
+    return insightsStatus;
+  }
+  
+  // Priority 5: Diagnostic Message
+  if (diagnosticMessage) {
+    const msg = diagnosticMessage.toLowerCase();
+    if (msg.includes('protocol is down') || msg.includes('unable to ping') || msg.includes('ping failed')) {
+      return 'DOWN';
+    }
+    if (msg.includes('protocol is up') || msg.includes('no issue on lm') || msg.includes('ping response is ok')) {
+      return 'UP';
+    }
+  }
+  
+  // Default: UNKNOWN if we can't determine
+  return 'UNKNOWN';
+};
+
+// Generate observation text based on service status and diagnostics
+const generateObservationText = (serviceStatus, protocolData, pingData, insightsSummary) => {
+  if (serviceStatus === 'UNKNOWN') {
+    return 'The service status could not be determined from available diagnostic information.';
+  }
+  
+  if (serviceStatus === 'UP') {
+    return 'The service is currently UP.';
+  }
+  
+  if (serviceStatus === 'DEGRADED') {
+    return 'The service is currently DEGRADED.';
+  }
+  
+  if (serviceStatus === 'DOWN') {
+    return 'The service is currently DOWN.';
+  }
+  
+  return 'The service is currently UP.';
 };
 
 const extractServiceData = (caseRecord, assetRecord) => {
@@ -673,7 +884,9 @@ const buildAcknowledgement = (data) => {
     line('Circuit Type', data.circuitType),
     line('Primary/Secondary', data.prisec),
     line('Bandwidth', data.bandwidth),
-    line('Last Mile Provider', data.lastMileProvider)
+    line('Last Mile Provider', data.lastMileProvider),
+    line('Scope', data.scope),
+    line('CPE Managed', data.cpeManaged)
   ].filter(Boolean);
 
   const blocks = [];
@@ -706,28 +919,44 @@ const buildAcknowledgement = (data) => {
 
   blocks.push('Observation:');
   blocks.push('');
-  blocks.push('Based on the diagnostic checks performed, the service is currently ' + (data.serviceStatus || 'UP') + '.');
+  blocks.push(data.observationText || 'The service is currently UP.');
   blocks.push('');
 
   // Protocol Status section
   if (data.protocolData && hasValue(data.protocolData.protocolType)) {
     blocks.push('Protocol Status:');
     blocks.push('');
-    blocks.push('Protocol Type:');
-    blocks.push(data.protocolData.protocolType);
-    blocks.push('');
-    blocks.push('Protocol State:');
-    blocks.push(data.protocolData.state || 'UNKNOWN');
-    blocks.push('');
     
-    if (hasValue(data.protocolData.peerIp)) {
-      blocks.push('Peer Details:');
-      blocks.push('Peer IP: ' + data.protocolData.peerIp);
-      if (hasValue(data.protocolData.uptime)) {
-        blocks.push('Uptime: ' + data.protocolData.uptime);
+    const protocolDetails = [];
+    const protocolType = data.protocolData.protocolType;
+    const protocolState = data.protocolData.state || 'UNKNOWN';
+    
+    if (protocolType === 'BGP') {
+      protocolDetails.push('BGP protocol is ' + protocolState);
+      
+      if (hasValue(data.protocolData.peerIp)) {
+        const peerInfo = 'The session is established with peer ' + data.protocolData.peerIp;
+        if (hasValue(data.protocolData.uptime)) {
+          peerInfo += ' with uptime ' + data.protocolData.uptime;
+        }
+        protocolDetails.push(peerInfo);
       }
-      blocks.push('');
+    } else if (protocolType === 'STATIC') {
+      protocolDetails.push('Static routing is configured. Reachability validation is based on endpoint connectivity testing.');
+    } else {
+      protocolDetails.push(protocolType + ' protocol is ' + protocolState);
+      
+      if (hasValue(data.protocolData.peerIp)) {
+        const peerInfo = 'Peer IP: ' + data.protocolData.peerIp;
+        if (hasValue(data.protocolData.uptime)) {
+          peerInfo += ' (Uptime: ' + data.protocolData.uptime + ')';
+        }
+        protocolDetails.push(peerInfo);
+      }
     }
+    
+    blocks.push(protocolDetails.join('. '));
+    blocks.push('');
     
     if (hasValue(data.protocolData.rawLog)) {
       blocks.push('Protocol Logs:');
@@ -741,21 +970,33 @@ const buildAcknowledgement = (data) => {
   if (data.pingData) {
     blocks.push('Endpoint Reachability:');
     blocks.push('');
-    blocks.push('Ping Status:');
-    blocks.push(data.pingData.status || 'UNKNOWN');
-    blocks.push('');
     
-    if (data.pingData.packetLoss !== null) {
-      blocks.push('Packet Loss:');
-      blocks.push(data.pingData.packetLoss + '%');
-      blocks.push('');
+    const pingDetails = [];
+    const pingStatus = data.pingData.status || 'UNKNOWN';
+    const packetLoss = data.pingData.packetLoss;
+    
+    if (pingStatus === 'UP') {
+      pingDetails.push('Ping verification shows successful reachability towards the customer endpoint');
+    } else if (pingStatus === 'DOWN') {
+      pingDetails.push('Ping verification shows no reachability towards the customer endpoint');
+    } else if (pingStatus === 'PARTIALLY_IMPACTED') {
+      pingDetails.push('Ping verification shows partial reachability towards the customer endpoint');
+    } else if (pingStatus === 'SEVERELY_IMPACTED') {
+      pingDetails.push('Ping verification shows significant packet loss towards the customer endpoint');
+    } else {
+      pingDetails.push('Ping verification shows ' + pingStatus + ' towards the customer endpoint');
+    }
+    
+    if (packetLoss !== null) {
+      pingDetails.push('Packet loss observed: ' + packetLoss + '%');
     }
     
     if (hasValue(data.pingData.averageRtt)) {
-      blocks.push('Average RTT:');
-      blocks.push(data.pingData.averageRtt);
-      blocks.push('');
+      pingDetails.push('Average latency: ' + data.pingData.averageRtt);
     }
+    
+    blocks.push(pingDetails.join('. '));
+    blocks.push('');
     
     if (hasValue(data.pingData.rawLog)) {
       blocks.push('Ping Logs:');
@@ -765,9 +1006,20 @@ const buildAcknowledgement = (data) => {
     }
   }
   
+  // Dynamic Next Action based on service status
   blocks.push('Next Action:');
   blocks.push('');
-  blocks.push('We are currently checking the reported issue with the concerned team and validating the diagnostic findings. We will share the next update once further analysis is completed.');
+  
+  const serviceStatus = data.serviceStatus || 'UNKNOWN';
+  if (serviceStatus === 'UP') {
+    blocks.push('We are validating the service and will share further updates once the analysis is completed.');
+  } else if (serviceStatus === 'DEGRADED') {
+    blocks.push('We are validating the diagnostic findings and will share further updates once the analysis is completed.');
+  } else if (serviceStatus === 'DOWN') {
+    blocks.push('We are checking the service and will share further updates once the analysis is completed.');
+  } else {
+    blocks.push('We are validating the service and will share further updates once the analysis is completed.');
+  }
 
   return blocks.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 };
@@ -877,6 +1129,7 @@ export const generateInitialAcknowledgement = async () => {
       prisec: service.prisec,
       bandwidth: service.bandwidth,
       serviceStatus: diagnostics.serviceStatus,
+      observationText: diagnostics.observationText,
       protocolData: diagnostics.protocolData,
       pingData: diagnostics.pingData
     });
