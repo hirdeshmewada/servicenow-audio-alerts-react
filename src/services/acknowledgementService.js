@@ -111,32 +111,26 @@ const fetchJson = async (url) => {
 };
 
 const fetchTableRecord = async (origin, table, sysId) => {
-  try {
-    const url = origin + '/api/now/table/' + table + '/' + sysId + '?sysparm_display_value=all';
-    const data = await fetchJson(url);
-    return data.result || null;
-  } catch (error) {
-    console.log('[ACK] Table API unavailable for', table, '-', error.message, '; using JSONv2');
-    const displayUrl = origin + '/' + table + '.do?sysparm_query=' +
-        encodeURIComponent('sys_id=' + sysId) + '&JSONv2&sysparm_display_value=true';
-    const rawUrl = origin + '/' + table + '.do?sysparm_query=' +
-        encodeURIComponent('sys_id=' + sysId) + '&JSONv2';
-    const displayData = await fetchJson(displayUrl);
-    const rawData = await fetchJson(rawUrl);
-    const display = (displayData.records && displayData.records[0]) || null;
-    const raw = (rawData.records && rawData.records[0]) || null;
-    if (!display) return raw;
-    if (!raw) return display;
-    Object.keys(raw).forEach(function (fieldName) {
-      if (SYS_ID_PATTERN.test(raw[fieldName])) {
-        display[fieldName] = {
-          value: raw[fieldName],
-          display_value: display[fieldName]
-        };
-      }
-    });
-    return display;
-  }
+  // Use JSONv2 directly since Table API is returning 401 Unauthorized
+  const displayUrl = origin + '/' + table + '.do?sysparm_query=' +
+      encodeURIComponent('sys_id=' + sysId) + '&JSONv2&sysparm_display_value=true';
+  const rawUrl = origin + '/' + table + '.do?sysparm_query=' +
+      encodeURIComponent('sys_id=' + sysId) + '&JSONv2';
+  const displayData = await fetchJson(displayUrl);
+  const rawData = await fetchJson(rawUrl);
+  const display = (displayData.records && displayData.records[0]) || null;
+  const raw = (rawData.records && rawData.records[0]) || null;
+  if (!display) return raw;
+  if (!raw) return display;
+  Object.keys(raw).forEach(function (fieldName) {
+    if (SYS_ID_PATTERN.test(raw[fieldName])) {
+      display[fieldName] = {
+        value: raw[fieldName],
+        display_value: display[fieldName]
+      };
+    }
+  });
+  return display;
 };
 
 const fetchJournal = async (origin, caseSysId) => {
