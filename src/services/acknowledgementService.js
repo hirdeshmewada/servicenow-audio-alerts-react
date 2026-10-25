@@ -127,11 +127,11 @@ const fetchTableRecord = async (origin, table, sysId) => {
     const raw = (rawData.records && rawData.records[0]) || null;
     if (!display) return raw;
     if (!raw) return display;
-    Object.keys(raw).forEach(function (field) {
-      if (SYS_ID_PATTERN.test(raw[field])) {
-        display[field] = {
-          value: raw[field],
-          display_value: display[field]
+    Object.keys(raw).forEach(function (fieldName) {
+      if (SYS_ID_PATTERN.test(raw[fieldName])) {
+        display[fieldName] = {
+          value: raw[fieldName],
+          display_value: display[fieldName]
         };
       }
     });
